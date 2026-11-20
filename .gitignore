@@ -1,0 +1,19 @@
+# ---- OS ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---- Java ----
+*.class
+helper/out/
+
+# ---- JS（mayoi plugin pack 的临时 node_modules 不入库；vendor/ 必须入库）----
+node_modules/
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+
+# ---- 测试与日志产物 ----
+*.log

@@ -1,26 +1,31 @@
 # 验证记录
 
-## 路径 A 冒烟验证（Task 1）— 2026-11-21 / Windows (NT 10.0.26300, x64) / jdtls 1.63.0 (202610191322) / JDK 21.0.4（PATH）/ Python 3.14.2
+## 路径 A 冒烟验证（Task 1）— 2026-11-21 / Windows (NT 10.0.26300, x64) / jdtls 1.63.0 (202610191322) / JDK 25.0.5.1（JAVA_HOME）+ 21.0.4（PATH）/ Python 3.14.2
 
 | 检查项 | 结果 | 备注 |
 |---|---|---|
-| stdio 启动（Step 4） | ⚠️ 阻塞 | 启动链路全部打通（cmd→bat→python→java→Equinox），但 jdtls 1.63.0 的 bundle 要求 JavaSE 25，本机 JDK 21 无法完成 OSGi 解析，服务未启动、未收到 initialize 响应。详见附录 A1 |
-| 自动 -data 目录（Step 5） | ⚠️ 未测成 | 同上阻塞（OSGi 解析失败，-data 目录未被创建）。另实测发现官方脚本机制与计划预期不同：sha1 输入是**工作目录最后一段**而非 data 目录名，且该默认路径**仅在未传 `-data`** 时生效；冒烟脚本显式传了 `-data`，故不会产生 `%APPDATA%\jdtls\jdtls-<hash>`。详见附录 A2 |
-| JDK 缺失报错（Step 6） | ✅ | 快速失败（秒级、exit 1、不挂死）。两种场景实测：① 完全无 java → Python traceback，末行 `FileNotFoundError: [WinError 2] 系统找不到指定的文件`（可读性一般）；② `JAVA_HOME` 指向 JDK 8 → 干净单行 `Exception: jdtls requires at least Java 21`（完全符合 validate-java-version 报错预期）。实际输出见附录 A3 |
-| Windows .bat 经 cmd 可启动 | ✅（修正引号后） | 逐字脚本的 `/c "bat" -data "dir"`（4 个引号）必失败——cmd 对 `/c` 后多引号命令行做首尾引号剥离，报"文件名、目录名或卷标语法不正确"；改用 `/s /c ""bat" -data "dir""` 后成功拉起 bat 并进入 JVM 启动。证明宿主可用 cmd 语义拉起 jdtls.bat，但 Task 2 实现必须用修正后的引号形式。详见附录 A4 |
+| stdio 启动（Step 4） | ✅ | 显式 `-data` 运行，收到 initialize 响应：`{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":…,"hoverProvider":true,…}}}`，`SMOKE OK`（exit 0）。启动链：cmd `/s /c` → `jdtls.bat` → `python bin/jdtls` → java（JDK 25）→ Equinox |
+| 自动 -data 目录（Step 5） | ✅ | 无 `-data` 运行两次：首次生成 `%APPDATA%\jdtls\jdtls-b5794618ba77a0ba790c602f30381a38f5b7ad8b`（内含 `.metadata`），二次复用**未新增**目录。哈希实测 = `sha1("mayoi-java")`，即 **basename(子进程真实 cwd)**——机制勘误与实现注记见 B2 |
+| JDK 缺失报错（Step 6） | ✅ | 快速失败（秒级、exit 1、不挂死）。① 完全无 java：traceback 末行 `FileNotFoundError: [WinError 2] 系统找不到指定的文件`（可读性一般）；② JAVA_HOME 指向 JDK 8：单行 `Exception: jdtls requires at least Java 21`。实际输出见 A3 |
+| Windows .bat 经 cmd 可启动 | ✅ | `/s /c ""bat" args""`（整体外层引号对包裹）可正常拉起；逐字版 `/c "bat" args`（4 引号）因 cmd 剥首尾引号必失败。勘误与对照实验见 A4 |
 
 ## 决策门结论
 
-- [ ] 路径 A 全部通过 → 执行 Task 2 —— **未达成**（Step 4/5 被 jdtls 1.63.0 与 JDK 21 的版本不匹配阻塞）
-- [ ] 存在失败项 → 跳过 Task 2 的 command 模式，先执行 Task 4（路径 B）—— **不建议就此跳过**：两项阻塞均为版本/JDK 匹配问题或冒烟脚本引号缺陷，**不是路径 A 机制本身的失败**（cmd→bat→python→java→Equinox 链路已被证明可走通）
-- [x] **待决策后补验再过门**（超出任务文本的决策，上报控制器二选一）：
-  - **方案 1**：本机安装 JDK 25（用户级），保留 jdtls 1.63.0（最新 milestone 官方基线已是 Java 25：jdt.ls README 主分支已改 "requires Java 25"，jdt.core 2025-09-22 构建起引入 JavaSE 25 依赖，见 jdt.ls issue #3537；Eclipse platform 亦有 "Require Java-25 for the Eclipse SDK" 提交）
-  - **方案 2**：改用仍支持 Java 21 的较老 milestone（推断为 1.50.0 / 2025-09-04，位于 JavaSE 25 依赖引入之前），需重新下载安装到 `%LOCALAPPDATA%\Programs\jdtls` 并重跑 Step 4/5
+- [x] **路径 A 全部通过 → 执行 Task 2**
+- [ ] 存在失败项 → 跳过 Task 2 的 command 模式，先执行 Task 4（路径 B）——不适用
 
-  补验时的已知修正项（与是否采纳方案无关，均须落实）：
-  1. 冒烟脚本 `scripts/lsp-smoke.ps1` 的 cmd 引号缺陷需改一行：`/c "..."` → `/s /c ""...""`（本仓库脚本按任务要求保持逐字未改，修正版验证副本在 `%TEMP%\lsp-smoke-fixed.ps1` 已证明可行）
-  2. 本机 `JAVA_HOME=D:\Development\CodeDevEnvironment\Java\jdk1.8.0_202`（JDK 8），官方 jdtls.py 会**优先采用 JAVA_HOME 的 java** 而无视 PATH 上的 21.0.4 → 拉起 jdtls 时必须显式纠正（修正 JAVA_HOME、或传 `--java-executable <JDK21/25>\bin\java.exe`）。这是 Task 2 宿主实现的关键输入
-  3. Step 5 判定口径按附录 A2 的真实机制执行：在**不传 `-data`** 的前提下于固定工作目录启动，验证 `%APPDATA%\jdtls\jdtls-<sha1(工作目录名)>` 生成与复用不新增
+补充：决策门一度因 **jdtls 1.63.0 的 OSGi bundle 要求 JavaSE 25** 而阻塞（本机最初仅 JDK 21，Equinox 解析失败，详见 A1）。经控制器决策安装 **Oracle JDK 25.0.5.1 LTS**（用户级 `JAVA_HOME = D:\Development\CodeDevEnvironment\Java\jdk-25.0.5.1`）后全项通过。**Task 2 的宿主实现必须保证以 JDK ≥ 25 拉起 jdtls 1.63.0**（jdtls.py 优先取 `JAVA_HOME\bin\java.exe`，其次 PATH；亦支持 `--java-executable` 显式指定）。
+
+## 本机环境两点说明
+
+1. **用户级 `JAVA_HOME` 已指向 JDK 25**（`D:\Development\CodeDevEnvironment\Java\jdk-25.0.5.1`，用户手动安装 Oracle JDK 25.0.5.1 LTS；机器级旧值 jdk1.8.0_202 未动，用户级覆盖仅对新进程生效）。jdtls.py 的 java 选择顺序 = `--java-executable` 参数 > `JAVA_HOME\bin\java.exe`（存在时）> PATH 上的 `java`；25.0.5.1 满足 1.63.0 的 JavaSE 25 要求，且 `java_major_version >= 24` 时官方脚本自动追加 `-Djdk.xml.maxGeneralEntitySizeLimit=0`、`-Djdk.xml.totalEntitySizeLimit=0` 两个兼容参数（与 PLAN F3 一致）。
+2. **PATH 上的 java 仍是 21.0.4**（Oracle javapath shim），与 JAVA_HOME=25 共存：不影响 jdtls（优先 JAVA_HOME），但宿主若依赖 PATH 找 java 则拿到 21——**无法运行 jdtls 1.63.0**。清单/文档需引导用户保证 JAVA_HOME ≥ 25 或在 settings 中显式指定。
+
+## 冒烟脚本勘误（相对任务原文的三处修订，均已实测）
+
+1. **cmd 引号修正**：`$psi.Arguments` 改为 `/s /c` + 整体外层引号对形式（见 A4）。注意：控制器下发的 `` "/s /c `"`"`"$Jdtls`" -data `"$DataDir`"`"" ``（3+2 引号）实测**不可行**——cmd /s 剥掉首尾引号后残留 `""bat"` 前缀报"不是内部或外部命令"；可行形式是 2+2：`` "/s /c `"`"$Jdtls`" -data `"$DataDir`"`"" ``。docs/PLAN.md 第 144 行如沿用 3+2 形式需同步修正。
+2. **无 `-data` 模式**：`$DataDir` / `$DATA_DIR` 默认空串，为空时不追加 `-data` 参数（这正是 Mayoi 宿主的真实启动形态）。`lsp-smoke.sh` 用 `${DATA_DIR:+-data "$DATA_DIR"}` 等效实现（bash 3.2 兼容，规避空数组 + `set -u` 坑）。
+3. **逐帧读取修正**：jdt.ls 在 initialize 响应前会先推送 `language/status` 等 notification（如 `{"type":"Starting","message":"Init..."}`），原单帧读取必然误判 FAIL。改为逐帧读取、跳过 notification，直到收到含 `"capabilities"` 的响应帧。两个脚本已同步修正。
 
 ---
 
@@ -28,11 +33,8 @@
 
 ### A0. 环境与安装（Step 1）
 
-- `java -version` → `java version "21.0.4" 2024-07-16 LTS`（PATH 首个 java 为 Oracle javapath shim，真实 `java.home = D:\Development\CodeDevEnvironment\Java\jdk-21`）
-- **注意**：`JAVA_HOME = D:\Development\CodeDevEnvironment\Java\jdk1.8.0_202`（JDK 8，本机既有状态，本任务未修改）
-- `python --version` → `Python 3.14.2`（`python3` 不存在，Windows 正常；实际解释器 `D:\Development\CodeDevEnvironment\Python\Python314\python.exe`）
 - 安装前 `where.exe jdtls*` → 未找到（exit 1）
-- 安装包：`jdt-language-server-1.63.0-202610191322.tar.gz`（51,143,565 字节 ≈ 48.77MB，官方 `https://download.eclipse.org/jdtls/milestones/1.63.0/`，用户手动下载提供；清华 TUNA 镜像 `/eclipse/jdtls/` 下无 milestones 目录、且不支持断点续传）
+- 安装包：`jdt-language-server-1.63.0-202610191322.tar.gz`（51,143,565 字节 ≈ 48.77MB，官方 `https://download.eclipse.org/jdtls/milestones/1.63.0/` 产物，用户手动下载提供；清华 TUNA 镜像 `/eclipse/jdtls/` 下无 milestones 目录，且不支持断点续传）
 - `tar -tzf` 全量校验通过（137 个条目无错误），解压到 `%LOCALAPPDATA%\Programs\jdtls`（tar exit 0），`bin\`、`config_win\`、`plugins\` 就位
 - **`bin\jdtls.bat` 实际内容（3 行）**：
   ```
@@ -40,75 +42,73 @@
   python "%~dp0/jdtls" %*
   pause
   ```
-  与计划预期的两行核心内容（`python "%~dp0/jdtls" %*` + `pause`）一致，另含 `@echo off` 头。
-- `bin\jdtls.py` 头部确认：`JAVA_HOME\bin\java.exe` 存在则优先使用；`--validate-java-version` 默认开启，`java_major_version < 21` 即抛 `jdtls requires at least Java 21`；支持 `--java-executable` 显式指定 java；`-data` 默认值为 `%APPDATA%\jdtls\jdtls-<sha1(cwd 目录名)>`
+  与计划预期一致（`python "%~dp0/jdtls" %*` + `pause`，另含 `@echo off` 头）。
+- `bin\jdtls.py` 关键事实：`--validate-java-version` 默认开启（< 21 抛 `jdtls requires at least Java 21`）；java 选择顺序见上文环境说明第 1 条；`-data` 默认值 = `<APPDATA>\jdtls\jdtls-<sha1(basename(os.getcwd()))>`；`bin\jdtls`（无扩展名，bat 实际调用入口）为纯加载器，不改 cwd、不改参数
 
-### A1. stdio 启动（Step 4）——阻塞于 JavaSE 25
+### A1. 决策门阻塞史：JavaSE 25（已由 JDK 25 解决）
 
-执行（TEMP 修正引号副本 + 子进程级 JAVA_HOME 临时指向 JDK 21，未动注册表/系统设置）：
-
-```
->> starting: cmd.exe /s /c ""C:\Users\10966\AppData\Local\Programs\jdtls\bin\jdtls.bat" -data "C:\Users\10966\AppData\Local\Temp\jdtls-smoke""
-Exception: stdout closed before response; stderr: WARNING: Using incubator modules: jdk.incubator.vector
-```
-
-手动复现（stdin 给 EOF）stderr 仅有上述 WARNING；stdout 输出：
-
-```
-An error has occurred. See the log file
-C:\Users\10966\AppData\Local\Programs\jdtls\configuration\1795223819784.log.
-```
-
-该 Equinox 日志关键内容：
+最初以 PATH java 21.0.4（子进程 JAVA_HOME 临时指 jdk-21）冒烟，Equinox 启动即写日志 `%LOCALAPPDATA%\Programs\jdtls\configuration\*.log`：
 
 ```
 org.osgi.framework.BundleException: Could not resolve module: org.eclipse.buildship.core [22]
-  Unresolved requirement: Require-Bundle: org.eclipse.debug.core
-    -> org.eclipse.debug.core [34]
-         Unresolved requirement: Require-Bundle: org.eclipse.core.resources ...
-           -> org.eclipse.core.resources [31]
-                Unresolved requirement: Require-Bundle: org.eclipse.core.filesystem
-                  -> org.eclipse.core.filesystem [28]
-                       Unresolved requirement: Require-Capability: osgi.ee; filter:="(&(osgi.ee=JavaSE)(version=25))"
+  ...
+                       Unresolved requirement: Require-Bundle: org.eclipse.core.filesystem
+                         -> org.eclipse.core.filesystem [28]
+                              Unresolved requirement: Require-Capability: osgi.ee; filter:="(&(osgi.ee=JavaSE)(version=25))"
 ```
 
-扫描 1.63.0 全部 plugin jar 的 MANIFEST.MF，JavaSE 要求分布：≤1.8 有 18 个、11 有 26 个、17 有 1 个、21 有 7 个、**25 有 1 个**（即 `org.eclipse.core.filesystem` 1.12.0.v20260927-0940）。虽然只有 1 个 bundle 要求 25，但 `core.filesystem` 位于 `jdt.ls.core` → `core.resources` 的主干依赖链上，OSGi 全链解析失败，框架无法启动。残留进程检查：无 java/python 残留；`%TEMP%\jdtls-smoke` 未被创建。
+扫描 1.63.0 全部 plugin jar 的 MANIFEST.MF：JavaSE ≤1.8 有 18 个、11 有 26 个、17 有 1 个、21 有 7 个、**25 有 1 个**（`org.eclipse.core.filesystem` 1.12.0.v20260927-0940）——仅 1 个 bundle 要求 25，但它在 `jdt.ls.core → core.resources` 主干链上，OSGi 全链解析失败。背景佐证：jdt.ls README 主分支已改 "requires Java 25"；jdt.core 2025-09-22 构建引入该依赖（jdt.ls issue #3537）；Eclipse platform 有 "Require Java-25 for the Eclipse SDK" 提交。约 1.50.0（2025-09-04）为最后支持 Java 21 的 milestone（供需要 JDK 21 兼容的用户参考）。
 
-### A2. 自动 -data 目录（Step 5）——机制与计划预期不符（实测 `jdtls.py`）
+### A2. Step 4 实际输出（最终通过形态）
 
-```python
-cwd_name = os.path.basename(os.getcwd())          # ← 哈希输入是"工作目录最后一段"
-jdtls_data_path = os.path.join(cachedir, "jdtls-" + sha1(cwd_name.encode()).hexdigest())
-parser.add_argument("-data", default=jdtls_data_path)  # ← 仅作默认值，显式传 -data 时被覆盖
+```
+>> starting: cmd.exe /s /c ""C:\Users\10966\AppData\Local\Programs\jdtls\bin\jdtls.bat" -data "C:\Users\10966\AppData\Local\Temp\jdtls-smoke""
+>> response (first 500 chars):
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":{"openClose":true,"change":2,"save":{"includeText":true}},"hoverProvider":true,"completionProvider":{"resolveProvider":true,"triggerCharacters":[".","@","#","*"," "]},"signatureHelpProvider":{"triggerCharacters":["(",","]},"definitionProvider":true,"typeDefinitionProvider":true,"implementationProvider":true,"referencesProvider":true,"documentHighlightProvider":true,"documentSymbolProvider":true,"workspaceSymbolProvider":true,"c
+SMOKE OK
 ```
 
-- 计划预期"按 data 目录路径最后一段（jdtls-smoke）做 sha1"与官方实现不符
-- 冒烟脚本显式传 `-DataDir %TEMP%\jdtls-smoke` → 不会生成 `%APPDATA%\jdtls\jdtls-<hash>`；实测冒烟后 `%APPDATA%\jdtls` 不存在，`%TEMP%\jdtls-smoke` 亦未创建（OSGi 失败所致）
-- 补验口径：不传 `-data`，在固定目录（如 `jdtls-smoke-ws`）启动 → 预期生成 `%APPDATA%\jdtls\jdtls-<sha1("jdtls-smoke-ws")>`（本例预测值 `jdtls-016d45a7ed8cafebb478fd2e3d3ba2675f4c9c61`），同目录二次启动不新增第二个 `jdtls-<hash>` 目录
+### A3. Step 6 实际输出
 
-### A3. JDK 缺失/不可用报错（Step 6）——实际输出
-
-① 字面场景：子进程 PATH 仅留 `C:\Windows\System32;C:\Windows`、删除 `JAVA_HOME`，用绝对路径 python 执行 `bin\jdtls`（stdin 给 EOF）→ **秒级失败，exit 1**，stderr 为 Python traceback，末行：
+① 字面场景（子进程 PATH 仅留 `C:\Windows\System32;C:\Windows`、删除 JAVA_HOME、绝对路径 python 执行 `bin\jdtls`、stdin 给 EOF）→ 秒级失败，exit 1，stderr 为 Python traceback，末行：
 
 ```
 FileNotFoundError: [WinError 2] 系统找不到指定的文件。
 ```
 
-（快速失败达标；报错形态是堆栈而非友好提示，末行含义可辨认。jdtls.py 的 `subprocess.check_output(['java','-version'])` 直接抛 FileNotFoundError，未做捕获。）
+（jdtls.py 对 `subprocess.check_output(['java','-version'])` 的 FileNotFoundError 未做捕获，报错形态是堆栈而非友好提示，但快速失败达标、末行含义可辨认。）
 
-② 环境变体（本机真实状态，冒烟时自然触发）：`JAVA_HOME` 指向 JDK 8 时，**秒级失败**，报错干净可读：
+② 环境变体（JAVA_HOME 指向 JDK 8，本机修复前真实状态）→ 秒级失败，单行干净报错：
 
 ```
 Exception: jdtls requires at least Java 21
 ```
 
-### A4. cmd 引号语义（冒烟脚本逐字版缺陷）
-
-对照实验（.NET ProcessStartInfo 直传 Arguments，等价于宿主 cmd 拉起语义）：
+### A4. cmd 引号语义对照实验（.NET ProcessStartInfo 直传 Arguments，等价宿主 cmd 拉起语义）
 
 | Arguments 形式 | 结果 |
 |---|---|
-| `/c "C:\...\hostname.exe" "arg1"` | ❌ stderr：`'C:\...\hostname.exe" "arg1' 不是内部或外部命令`（cmd 剥掉首尾引号） |
-| `/s /c ""C:\...\hostname.exe" "arg1""` | ✅ 程序被正常执行 |
+| `/c "exe" "arg"`（任务原文写法，4 引号） | ❌ `'"exe" "arg"' 不是内部或外部命令`（cmd 剥掉首尾引号） |
+| `/s /c """exe" "arg""`（控制器/PLAN.md 下发的 3+2 形式） | ❌ `'""exe" "arg"' 不是内部或外部命令`（/s 剥后残留 `""` 前缀） |
+| `/s /c ""exe" "arg""`（2+2，**最终采用**） | ✅ 程序被正常执行；冒烟全链 SMOKE OK |
 
-规则依据（`cmd /?`）：`/c` 后引号数**恰为 2** 且满足其余条件才保留引号，否则走旧行为"剥掉第一个和最后一个引号"。逐字脚本固定产出 4 个引号 → 在 Windows 上必然失败。修正版（`%TEMP%\lsp-smoke-fixed.ps1`，仅改一行）已打通至 JVM 启动阶段（见 A1）。
+规则依据（`cmd /?`）：`/c` 后引号数恰为 2 且满足其余条件才原样保留；否则剥掉第一个和最后一个引号。`/s` 强制剥首尾引号——因此整体外层再包一对引号即可在剥离后得到干净的 `"bat" args`。
+
+### B2. 自动 -data 目录机制（Step 5 实测勘误与实现注记）
+
+`jdtls.py` 实际逻辑（安装版逐字核对）：
+
+```python
+cwd_name = os.path.basename(os.getcwd())
+jdtls_data_path = os.path.join(cachedir, "jdtls-" + sha1(cwd_name.encode()).hexdigest())   # 仅作 -data 默认值
+```
+
+- 计划原预期"按 data 目录名做 sha1"不成立；真实输入 = **jdtls 进程的工作目录最后一段**，且仅在**未显式传 `-data`** 时生效（显式 `-data` 直接覆盖，不产生 APPDATA 缓存目录）
+- 实测陷阱：.NET `ProcessStartInfo` 不设 `WorkingDirectory` 时子进程继承 **Win32 进程级 cwd**（pwsh 会话中即 `[Environment]::CurrentDirectory` = 启动目录），**不是** pwsh `Set-Location` 的目标位置。故冒烟观测到的哈希 = `sha1("mayoi-java")` = `b5794618ba77a0ba790c602f30381a38f5b7ad8b`，而非 `sha1("jdtls-smoke-ws")`（= `016d45a7ed8cafebb478fd2e3d3ba2675f4c9c61`，曾据错误假设预测）
+- **Task 2 实现注记**：Mayoi 以 `cmd.Dir = workspace root` 显式设置子进程 cwd（PLAN F8，Go `exec.Command`），因此 data 目录名确定性 = `sha1(basename(workspace root))`——同名叶子目录的不同项目仍会共用同一 data 目录（索引串扰风险，PLAN F4 已识别；宿主侧如需隔离可显式传 `-data` 指定独立目录）
+- 复用验证：同一真实 cwd 下两次无 `-data` 冒烟，`%APPDATA%\jdtls` 始终只有一个 `jdtls-b5794618…` 目录，未新增
+
+### B3. 残留物与清理
+
+- 每次冒烟结束由脚本 `taskkill /PID <cmd> /T /F` 清理进程树（输出"成功: 已终止 PID …"），事后核查无 java/python/curl 残留进程
+- 冒烟产物：`%TEMP%\jdtls-smoke`（显式 data）、`%APPDATA%\jdtls\jdtls-b5794618…`（默认 data，保留供 Task 2 对照）——均属测试产物，不入库

@@ -23,13 +23,16 @@
 
 ## 冒烟脚本勘误（相对任务原文的三处修订，均已实测）
 
-1. **cmd 引号修正**：`$psi.Arguments` 改为 `/s /c` + 整体外层引号对形式（见 A4）。注意：控制器下发的 `` "/s /c `"`"`"$Jdtls`" -data `"$DataDir`"`"" ``（3+2 引号）实测**不可行**——cmd /s 剥掉首尾引号后残留 `""bat"` 前缀报"不是内部或外部命令"；可行形式是 2+2：`` "/s /c `"`"$Jdtls`" -data `"$DataDir`"`"" ``。docs/PLAN.md 第 144 行如沿用 3+2 形式需同步修正。
-2. **无 `-data` 模式**：`$DataDir` / `$DATA_DIR` 默认空串，为空时不追加 `-data` 参数（这正是 Mayoi 宿主的真实启动形态）。`lsp-smoke.sh` 用 `${DATA_DIR:+-data "$DATA_DIR"}` 等效实现（bash 3.2 兼容，规避空数组 + `set -u` 坑）。
+1. **cmd 引号修正**：`$psi.Arguments` 改为 `/s /c` + 整体外层引号对形式（见 A4）。注意：控制器下发的 `` "/s /c `"`"`"$Jdtls`" -data `"$DataDir`"`"" ``（3+2 引号）实测**不可行**——cmd /s 剥掉首尾引号后残留 `""bat"` 前缀报"不是内部或外部命令"；可行形式是 2+2：`` "/s /c `"`"$Jdtls`" -data `"$DataDir`"`"" ``。docs/PLAN.md 第 144 行已由控制器同步修正。
+2. **无 `-data` 模式**：`$DataDir` / `$DATA_DIR` 默认空串，为空时不追加 `-data` 参数（这正是 Mayoi 宿主的真实启动形态）。`lsp-smoke.sh` 用 `${DATA_DIR:+-data "$DATA_DIR"}` 等效实现——仅此构造兼容 bash 3.2；脚本整体需要 bash 4+（coproc/read -N/`{fd}` 关闭语法），macOS 自带 bash 3.2 需用 Homebrew bash（已在脚本头部注明）。
 3. **逐帧读取修正**：jdt.ls 在 initialize 响应前会先推送 `language/status` 等 notification（如 `{"type":"Starting","message":"Init..."}`），原单帧读取必然误判 FAIL。改为逐帧读取、跳过 notification，直到收到含 `"capabilities"` 的响应帧。两个脚本已同步修正。
+4. **复审加固（详见附录 C1）**：bash 侧剥离 LSP header 的行尾 `\r`（bash read 只剥 `\n`，否则空行判定永不成立且 Content-Length 带尾 `\r`）；ps1 把启动到读取包进 `try/finally`（任何 throw 都会 taskkill 清理进程树）；两侧 stderr 均改为文件重定向——**M4 选择说明**：选择了实现重定向而非保留 + 注释方案，理由是重定向消除了一类真实的死锁（stderr 管道 >4KB 无人排水会阻塞子进程），Windows 侧经 cmd 层 `2>` 落文件、POSIX 侧在 coproc 内落文件，失败路径打印该文件、成功后删除，复杂度可控且两侧均实测；ps1 的 POSIX 分支不经过 shell，stderr 直通控制台（无管道阻塞风险）；sh 侧另加 `command -v` 前置检查、`>> starting:` 回显、kill 后 `wait` 收割（消除 bash "Terminated" 任务通知）、rootUri 空格转义。
 
 ---
 
 ## 附录：实测证据
+
+图例：A× = 计划步骤证据；B× = 机制勘误/运维注记；C× = 复审修复回归验证。
 
 ### A0. 环境与安装（Step 1）
 
@@ -60,6 +63,8 @@ org.osgi.framework.BundleException: Could not resolve module: org.eclipse.builds
 扫描 1.63.0 全部 plugin jar 的 MANIFEST.MF：JavaSE ≤1.8 有 18 个、11 有 26 个、17 有 1 个、21 有 7 个、**25 有 1 个**（`org.eclipse.core.filesystem` 1.12.0.v20260927-0940）——仅 1 个 bundle 要求 25，但它在 `jdt.ls.core → core.resources` 主干链上，OSGi 全链解析失败。背景佐证：jdt.ls README 主分支已改 "requires Java 25"；jdt.core 2025-09-22 构建引入该依赖（jdt.ls issue #3537）；Eclipse platform 有 "Require Java-25 for the Eclipse SDK" 提交。约 1.50.0（2025-09-04）为最后支持 Java 21 的 milestone（供需要 JDK 21 兼容的用户参考）。
 
 ### A2. Step 4 实际输出（最终通过形态）
+
+（转录已省略 taskkill 输出）
 
 ```
 >> starting: cmd.exe /s /c ""C:\Users\10966\AppData\Local\Programs\jdtls\bin\jdtls.bat" -data "C:\Users\10966\AppData\Local\Temp\jdtls-smoke""
@@ -110,5 +115,31 @@ jdtls_data_path = os.path.join(cachedir, "jdtls-" + sha1(cwd_name.encode()).hexd
 
 ### B3. 残留物与清理
 
-- 每次冒烟结束由脚本 `taskkill /PID <cmd> /T /F` 清理进程树（输出"成功: 已终止 PID …"），事后核查无 java/python/curl 残留进程
+- 每次冒烟结束由脚本清理进程树（ps1：`taskkill /PID <cmd> /T /F`，已包进 `try/finally`；sh：kill + wait 收割 coproc），事后核查无 java/python/curl 残留进程
 - 冒烟产物：`%TEMP%\jdtls-smoke`（显式 data）、`%APPDATA%\jdtls\jdtls-b5794618…`（默认 data，保留供 Task 2 对照）——均属测试产物，不入库
+
+### C1. 复审修复回归验证（2026-11-21）
+
+**sh 侧（Git Bash 4.4.23 + 一次性假 LSP 服务器）**——验证 CRLF 剥离、notification 跳帧、`read -N` 定长读取、`command -v` 前置检查；假服务器为 node 脚本（CRLF 帧格式，先发 `language/status` notification 再发含 `capabilities` 的 initialize 响应，模拟 jdt.ls 真实行为）：
+
+```
+$ bash.exe scripts/lsp-smoke.sh C:/Users/10966/AppData/Local/Temp/fake-lsp
+>> starting: C:/Users/10966/AppData/Local/Temp/fake-lsp
+>> response (first 500 chars):
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":{"openClose":true},"hoverProvider":true}}}
+SMOKE OK        （exit 0，且 kill 后 wait 收割，无 "Terminated" 任务通知）
+
+$ bash.exe scripts/lsp-smoke.sh /nonexistent/fake-jdtls
+SMOKE FAIL: '/nonexistent/fake-jdtls' not found    （exit 1）
+```
+
+注：sh 脚本以 macOS/Linux 为目标，本次在 Windows Git Bash + 假服务器上验证的是**帧处理逻辑**（CRLF 剥离/跳帧/定长读取）；真实 jdtls 在 macOS/Linux 上的端到端实跑留待有条件时补验。
+
+**ps1 侧（真实 jdtls 1.63.0 + JDK 25，显式 `-DataDir`）**——验证 try/finally 改造与 stderr 文件重定向未破坏成功路径：
+
+```
+>> starting: cmd.exe /s /c ""C:\...\bin\jdtls.bat" -data "C:\...\Temp\jdtls-smoke" 2>"C:\...\Temp\jdtls-smoke-err-<PID>.log""
+>> response (first 500 chars):
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":{"openClose":true,"change":2,...
+SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成功后已删除）
+```

@@ -176,6 +176,7 @@ if not exist "%DATA_DIR%" (
   -jar "%LAUNCHER%" ^
   -data "%DATA_DIR%" %*
 '@
+$launcher = ($launcher -split "`n") -replace "`r$", "" -join "`r`n"   # normalize LF blob -> CRLF (raw.githubusercontent serves LF)
 Set-Content (Join-Path $BinDir "jdtls.bat") $launcher -Encoding ascii
 
 # ---- 4. PATH 追加（仅追加，绝不覆盖）----

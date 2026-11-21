@@ -76,8 +76,8 @@ mayoi-java/                     # 仓库根 = 插件目录（mayoi plugin instal
 | M0 仓库与计划 | — | git 仓库、PLUGIN-RULES、PLAN | ✅ 本次提交完成 |
 | M1 环境与路径 A 验证 | Task 1 | 冒烟脚本、验证结论、决策门判定 | 待执行 |
 | M2 v1 插件（路径 A） | Task 2 | plugin.json、README、LICENSE | 待执行（Task 1 通过才做） |
-| M3 真机验收 | Task 3 | VERIFICATION.md、验收矩阵结论 | 待执行 |
-| M4 路径 B resolver | Task 4 | helper jar、resolve 模式清单 | **条件执行**（见决策门） |
+| M3 真机验收 | Task 3 | VERIFICATION.md、验收矩阵结论 | ✅ 完成（2026-11-21，A1–A12 全过，A13 SSH 留待补测） |
+| M4 路径 B resolver | Task 4 | helper jar、resolve 模式清单 | ⏭️ **跳过**（路径 A 决策门全过，条件未触发） |
 | M5 发布 | Task 5 | GitHub、index.json PR | 待执行 |
 
 ---
@@ -353,7 +353,7 @@ public class App {
 | A2 | 诊断 | 把某行改成 `String x = 1;` | Problems 出现类型错误；状态栏计数更新 |
 | A3 | hover | 悬停 `greet` | 显示 `String greet(String)` 签名 |
 | A4 | 定义跳转 | `greet("Mayoi")` 上 F12 / ⌘-click | 跳到下方定义 |
-| A5 | 补全 | `App.` 后 ⌃Space | 出现 `main` 等成员 |
+| A5 | 补全 | `App.` 后触发 **Complete Word** 命令（命令面板搜 complete，或自绑快捷键） | 弹出成员补全列表（main、greet 等）。注意：Mayoi 无点号自动触发；0.23 的 `sel.complete` 无默认快捷键（宿主观察项，见 VERIFICATION.md） |
 | A6 | 格式化 | 触发宿主格式化 | 文档被 jdtls 格式化（前提：没有其他插件注册 java formatter） |
 | A7 | Maven 导入 | 直接打开 `test-fixtures/` | 无报错；依赖解析行为记录（离线首次打开可慢，v1 不承诺，如实记录） |
 | A8 | 缺服务器报错 | 把 `plugins.java.path` 改成不存在的值，重开 .java 文件 | 出现明确原因（程序未安装/进程退出/无响应）+ `install` 提示 + **Restart** 按钮；改回后 Restart 可恢复 |

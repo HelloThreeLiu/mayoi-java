@@ -146,3 +146,61 @@ SMOKE FAIL: '/nonexistent/fake-jdtls' not found    （exit 1）
 {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":{"openClose":true,"change":2,...
 SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成功后已删除）
 ```
+
+---
+
+## Task 3 真机验收（2026-11-21 / Mayoi 0.23.1 / Windows / jdtls 1.63.0 / JDK 25.0.5.1 / 插件经 junction 链接）
+
+验收环境：`~/.mayoi/plugins/java`（junction → 本仓库，`mayoi plugin dev` 的 symlink 因开发者模式未开改用 junction，见 D1）；用户 settings.json 配置 `plugins.java.path = C:\Users\10966\AppData\Local\Programs\jdtls\bin\jdtls.bat`（完整路径——本机 PATH 上无 jdtls，属 README 载明的 Windows 正常配置形态）。
+
+### 验收矩阵结果
+
+| # | 项 | 结果 | 证据/备注 |
+|---|---|---|---|
+| A1 | 服务器拉起 | ✅ | 插件日志 `10:45:27.422 [info] java: started java.server`；Show Language Servers 面板显示运行中 |
+| A2 | 诊断 | ✅ | 注入 `String x = 1;` → jdtls 日志 `2-3 problems reported for /App.java`，Problems 面板与状态栏计数更新；撤销后 `0 problems` |
+| A3 | hover | ✅ | `greet` 显示方法签名 |
+| A4 | 定义跳转 | ✅ | F12 跳到定义行 |
+| A5 | 补全 | ✅ | 命令面板 Complete / F2 触发，返回 `main`、`greet` 及 Object 成员。注意：① Mayoi 无点号自动触发（全源码无 triggerCharacters 处理，`sel.complete` 为手动命令）；② 快捷键问题见宿主观察 1/2 |
+| A6 | 格式化 | ✅ | 宿主格式化命令生效 |
+| A7 | Maven 导入 | ✅ | jdtls 日志 `Importing Maven project(s)` → `Workspace initialized in 25057ms`；`test-fixtures/.classpath`、`.project`、`.settings/` 落盘（Eclipse 项目元数据，已 gitignore）为导入成功的物证 |
+| A8 | 缺服务器报错 + 恢复 | ✅ | 故意配错路径（`C:\nonexistent\jdtls.bat`）→ UI 通知「无法启动 java.server: jdtls.bat 未安装。安装命令： brew install jdtls」+ **Restart** 按钮（截图存档）；日志 `could not start java.server: fork/exec C:\nonexistent\jdtls.bat: The system cannot find the path specified.`（精确 OS 原因）；恢复路径后点 **Restart** → `started java.server` 一键恢复 |
+| A9 | 用户覆盖配置 | ✅ | settings.json 顶层 `languageServers.java.server.initializationOptions` → 服务器重启时插件日志出现 `[info] starting java.server with languageServers.java.server.initializationOptions`（源码 `lsp_resolve.go:251` 行为实证，RFC 7386 深合并生效） |
+| A10 | 崩溃恢复 | ✅ | `taskkill /F` 强杀 jdtls JVM（PID 35932）→ 重开文档即自动重启（`stopped` → `starting …` → `started java.server`），与源码 `lspRetryPause = 30s` 重试机制吻合 |
+| A11 | 插件日志 | ✅ | 无刷屏错误；仅 JDK 25 的良性 JVM 警告（incubator modules / guice Unsafe deprecation） |
+| A12 | Windows `.bat` 启动链 | ✅ | 宿主经 cmd 语义拉起 `jdtls.bat` → python → java 全链成功（A1 即证） |
+| A13 | SSH 远端 | ⏭️ | 无 SSH 环境条件，留待有条件时补测 |
+
+### 验收过程日志节选（三轮服务器生命周期）
+
+```
+10:45:27.422 [info]  java: started java.server                     ← A1 首次拉起
+11:43:30.139 [warn]  java: java.server stopped                     ← A9 触发的重启
+11:43:30.139 [info]  java: starting java.server with languageServers.java.server.initializationOptions
+11:43:31.934 [info]  java: started java.server                     ← A9 覆盖生效
+11:47:54.401 [warn]  java: java.server stopped                     ← A10 强杀 JVM（PID 35932）
+11:47:54.401 [info]  java: starting java.server with languageServers.java.server.initializationOptions
+11:47:55.970 [info]  java: started java.server                     ← A10 自动恢复
+11:50:46.377 [warn]  java: java.server stopped                     ← A8 杀掉旧实例
+11:50:49.251 [error] java: could not start java.server: fork/exec C:\nonexistent\jdtls.bat: The system cannot find the path specified.   ← A8 失败原因
+11:51:36.390 [info]  java: starting java.server with languageServers.java.server.initializationOptions   ← A8 恢复路径后点 Restart
+11:51:37.985 [info]  java: started java.server                     ← A8 一键恢复
+```
+
+### 宿主观察项（非插件缺陷；供 Mayoi 上游参考，README 已做用户侧提示）
+
+1. **`sel.complete` 无默认快捷键**：`commands.go:122` 默认键为空串，而命令面板标签显示 "Ctrl+Space"（`commandpalette.go:90`）——标签与实现不符，按 Ctrl+Space 无反应。设置编辑器还会为这个不存在的"默认键"生成 `-sel.complete` 解绑条目（VS Code 移除语法）。用户可自行绑定（编辑器内 Alt 组合键另见观察 2，推荐非 Alt 键或命令面板路径）。
+2. **含 Alt 的 keybindings 绑定在 Windows 编辑器内不触发**：`ctrl+alt+space` 绑定无反应，改绑 `F2` 立即生效（热加载正常，排除加载问题）；疑与 mygo Windows 输入层对 `WM_SYSKEYDOWN` 的处理有关（未深究，Mayoi 内核范畴）。命令面板触发不受影响。
+3. **服务器重启 + 编辑器打开时的 `BadLocationException`**：`WorkspaceDiagnosticsHandler.convertRange` 竞态，3/3 次重启复现，一次性、自愈，不影响后续诊断（jdtls 上游已知类问题）。
+4. **孤儿 JVM**：异常结束的会话（首次 160s 导入被中止的那次）其 jdtls java 进程存活逾 1 小时（`cmd→bat→python→java` 链，宿主树杀未及孙子进程），已手动清理（taskkill PID 43712）。
+5. **install 提示的平台偏置**：失败通知展示 `brew install jdtls`（清单 install 为单字符串，Windows/Linux 用户需按 README 兜底指引安装）。
+
+### 遗留
+
+- A13 SSH 远端验收：留待有条件时补测。
+- 首次 Maven 导入冷启动耗时明显（大项目实测 160s；本项目首次 25s）——属 jdtls 行为，README 已注明，v1 不承诺。
+- `plugin list` 对 junction 链接不显示 dev 标记、`plugin install` 不拒绝覆盖 junction（源码 registry.go 检查 ModeSymlink）——**Task 5 安装测试前须先 `cmd /c rmdir` 删除 junction**（已在 PLAN Task 5 记载）。
+
+### Task 4 决策门（更新）
+
+路径 A 全项通过 → **Task 4（路径 B resolver）按计划跳过**，不执行。若未来 Mayoi/jdtls 演进导致路径 A 失效，或需要去除 Python 依赖，再按 PLAN Task 4 重启该任务（其设计注记已按源码事实更新完毕）。

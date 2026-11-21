@@ -6,6 +6,7 @@ Desktop.ini
 # ---- Java ----
 *.class
 helper/out/
+target/
 
 # ---- JS（mayoi plugin pack 的临时 node_modules 不入库；vendor/ 必须入库）----
 node_modules/

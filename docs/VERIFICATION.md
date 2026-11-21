@@ -242,3 +242,12 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 
 - plugin.json 0.2.0 + README 一条命令安装改写（提交 `802b099`）
 - 合并 main、tag v0.2.0、`plugin install` 升级测试（0.1.0 → 0.2.0）：见本节顶部时序，结果随验收推进回填
+
+### 上游反馈：应用内更新失败（sorrycc/Mayoi#233，已修复）
+
+- 验收中发现的"应用内 Update 按钮 Windows 失败"已报上游 → **sorrycc 当天回复并修复**（commit `cc5603d`，issue 已关闭）：
+  - 根因确认：插件 watcher 对每个插件目录及其子目录（bootstrap/launcher/scripts）持有句柄，Windows rename 被阻断；复现测试 `TestUpdateKeepsFolderWhileWatched` 补充于 `install_test.go`（作者无 Windows 机器，mac 上以"更新整体替换插件目录"复现）
+  - 修复方案 ≈ 本计划建议②：同源更新改为**原地 git 更新**（新版本仍先克隆到临时目录校验 manifest，再从临时 clone fetch 新 commit 并在**原目录原地 checkout**——全程无 rename）；覆盖 Update 按钮、应用运行中的 `plugin install/update`、settings sync；新版删除的文件会移除、untracked（node_modules）保留；非 Git clone 目录仍走 rename
+- **版本状态**：`cc5603d` 领先 v0.23.1 七个提交（未随 0.23.1 发布）；Mayoi 发版节奏约 1-2 天一版 + 应用自动更新 → 发布后应用内 Update 按钮即可用
+- **过渡期口径**（0.23.1 及更早版本）：更新插件 = 完全退出 Mayoi → `mayoi plugin update java` → 重开（本验收已实测成功）
+- 上游已知未修：**移除**插件时 Windows 运行中可能撞同款句柄问题（作者留待出现时再修）——本插件的卸载指引（退出 Mayoi 后操作）已覆盖

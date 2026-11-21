@@ -18,13 +18,13 @@ Java 语法高亮由 Mayoi 内置（Chroma lexer）提供，插件无需贡献�
 | 依赖 | 要求 | 说明 |
 |---|---|---|
 | Mayoi | >= 0.19.0 | 已在 Mayoi 0.23.1 完成真机验收 |
-| 网络 | 初次使用 | 需联网下载约 95MB（受管 JRE + jdtls） |
+| 网络 | 初次使用 | 需联网下载约 105MB（受管 JRE 约 56MiB + jdtls 约 49MB） |
 
 以下依赖由引导脚本自动满足（或已存在时自动跳过）：JDK/JRE 21+（最新 jdtls 需 25+，受管 JRE 25 随引导安装）、Python 3.9+（仅当使用你自装的官方 bin/jdtls 启动器时）、jdtls 1.63.0。
 
 ## 安装
 
-一条命令（自动安装受管 JRE 25 + jdtls 1.63.0、免 Python 启动器并接入 PATH，约 95MB 下载）：
+一条命令（自动安装受管 JRE 25 + jdtls 1.63.0、免 Python 启动器并接入 PATH，约 105MB 下载：受管 JRE 约 56MiB + jdtls 约 49MB）：
 
 ```powershell
 # Windows PowerShell

@@ -1,4 +1,4 @@
-# bootstrap.ps1 — mayoi-java 一键引导（Windows）
+﻿# bootstrap.ps1 — mayoi-java 一键引导（Windows）
 # 用法: iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootstrap/bootstrap.ps1 | iex
 # 可选环境变量: MAYOI_JDTLS_TGZ=<本地 tar.gz 路径 或 自定义 URL>
 #   （eclipse.org 国内较慢；可先手动下载 jdt-language-server-1.63.0-*.tar.gz，再把它指向本地文件）
@@ -34,7 +34,7 @@ if (-not $skipRuntime) {
 
 # ---- 1. 受管 JRE 25（TUNA 主源 + Adoptium 官方回退；已存在则跳过）----
 if (-not (Test-Path (Join-Path $JreDir "bin\java.exe"))) {
-    Step "下载 Temurin JRE 25 (约 45MB)"
+    Step "下载 Temurin JRE 25 (约 56MiB)"
     $targets = @(
         "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jre/x64/windows/OpenJDK25U-jre_x64_windows_hotspot_25.0.5_8.zip",
         "https://api.adoptium.net/v3/binary/latest/25/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk"

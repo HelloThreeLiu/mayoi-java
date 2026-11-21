@@ -149,7 +149,7 @@ ensure_jre() {
         jre_desired=$(tuna_latest_name)
     fi
 
-    step "下载 Temurin JRE 25 ($plat_os/$plat_arch，约 45MB)"
+    step "下载 Temurin JRE 25 ($plat_os/$plat_arch，约 56MiB)"
     echo "   注意: JRE 源为浮动 latest（TUNA 目录页 / Adoptium API），无法钉死哈希；jdtls 侧已钉死 SHA256"
     local cache="" ok=false
     if [ -n "$jre_desired" ]; then

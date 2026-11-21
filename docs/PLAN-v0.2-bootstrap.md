@@ -16,11 +16,11 @@ v0.1 验收（`docs/VERIFICATION.md`）暴露的产品问题（用户反馈）�
 
 | # | 事实 | 对本计划的意义 |
 |---|---|---|
-| G1 | jdtls 本体只需 **JRE 25+** 即可运行（Task 1 A1 实测 = JDK 25 运行）；用户的 JDK 8 只用于运行他们自己的程序，与编辑器无关——ECJ 可分析 `release=8` 的老项目 | 引导脚本装 **JRE**（≈45MB）而非 JDK（≈135MB）即可 |
+| G1 | jdtls 本体只需 **JRE 25+** 即可运行（Task 1 A1 实测 = JDK 25 运行）；用户的 JDK 8 只用于运行他们自己的程序，与编辑器无关——ECJ 可分析 `release=8` 的老项目 | 引导脚本装 **JRE**（≈56MiB）而非 JDK（≈135MB）即可 |
 | G2 | `jdtls.py` 的启动参数已全部核实（Task 1 A0/B2：17 项固定参数、平台 config、`-data` 哈希、Java≥24 附加参数） | 免 Python 启动器可逐字复刻，零猜测 |
 | G3 | Mayoi 用 Go `exec.LookPath` 按 PATH 找 `command`（Windows 按 PATHEXT 命中 `.bat`）——**PATH 上有我们的启动器 = 插件默认配置直接可用**，无需写 settings.json | PATH 追加是本方案的"配置"步骤 |
 | G4 | Windows 10 1803+ 自带 `curl.exe` 与 `tar.exe`；macOS/Linux 自带 curl 与 tar | 下载/解压零外部依赖，支持 `-C -` 断点续传 |
-| G5 | TUNA 镜像有 Adoptium **JRE** 产物（`/Adoptium/25/jre/x64/windows/OpenJDK25U-jre_x64_windows_hotspot_25.0.5_8.zip`，约 45MB，国内快）；**jdtls 无国内镜像**（Task 1 实测 404），只能 eclipse.org 直连（49MB，国内慢，必须支持断点续传与本地预下载通道） | 下载策略：JRE 走镜像直下；jdtls 支持续传 + 手动预下载参数 |
+| G5 | TUNA 镜像有 Adoptium **JRE** 产物（`/Adoptium/25/jre/x64/windows/OpenJDK25U-jre_x64_windows_hotspot_25.0.5_8.zip`，约 56MiB，国内快）；**jdtls 无国内镜像**（Task 1 实测 404），只能 eclipse.org 直连（49MB，国内慢，必须支持断点续传与本地预下载通道） | 下载策略：JRE 走镜像直下；jdtls 支持续传 + 手动预下载参数 |
 | G6 | Mayoi 设置支持热加载；`mayoi settings` CLI 无法写 `plugins.<name>.<key>` 嵌套键（Task 2 实测） | 方案彻底绕开 settings 写入（PATH 即配置） |
 | G7 | Mayoi 对不存在文件场景：`keymap.Watch` 监目录（可热加载）；插件命令需 main.ts 且单命令 10 秒预算 | 编辑器内触发推 v0.3；本版用终端一条命令 |
 
@@ -51,7 +51,7 @@ Windows: %LOCALAPPDATA%\mayoi-java\
 POSIX: ~/.local/share/mayoi-java/
 ├── jre/
 ├── jdtls/
-└── bin/jdtls       （启动器；另复制一份到 ~/.local/bin/jdtls，PATH 常规覆盖处）
+└── bin/jdtls       （启动器；另在 ~/.local/bin/jdtls 放 wrapper（绝对路径 exec 转发）——字节拷贝会破坏启动器 $0 相对解析（~/.local/bin 下 ../jre 不存在），属有意改进）
 ```
 
 ### 1.3 启动器规范（免 Python，逐项对应 jdtls.py 已核实行为）
@@ -59,7 +59,7 @@ POSIX: ~/.local/share/mayoi-java/
 1. **java 解析优先级**：`<安装目录>\jre\bin\java(.exe)`（受管 JRE，存在即用）→ `JAVA_HOME\bin\java(.exe)` → PATH `java`。受管 JRE 优先保证 JRE 缺失回退时给出明确告警。
 2. **固定 JVM 参数**（G2，逐字）：`-Declipse.application=org.eclipse.jdt.ls.core.id1`、`-Dosgi.bundles.defaultStartLevel=4`、`-Declipse.product=org.eclipse.jdt.ls.core.product`、`-Dosgi.checkConfiguration=true`、`-Dosgi.sharedConfiguration.area=<jdtls目录>\config_win|mac|linux`、`-Dosgi.sharedConfiguration.area.readOnly=true`、`-Dosgi.configuration.cascaded=true`、`-Xms1G`、`--add-modules=ALL-SYSTEM`、`--add-opens java.base/java.util=ALL-UNNAMED`、`--add-opens java.base/java.lang=ALL-UNNAMED`、`-Djdk.xml.maxGeneralEntitySizeLimit=0`、`-Djdk.xml.totalEntitySizeLimit=0`（最后两项 jdtls.py 仅在 Java≥24 追加；`-D` 系统属性在旧 JVM 上无害，**无条件追加**以免启动器做版本解析）。
 3. **入口 jar**：glob `plugins/org.eclipse.equinox.launcher_*.jar`（优先精确名 `org.eclipse.equinox.launcher.jar`）。
-4. **`-data` 目录**：`<平台缓存>\mayoi-java\jdtls\<净化后的 cwd 目录名>`（净化 = 替换 `\/:*?"<>|` 为 `_`）。**偏离官方 sha1 哈希**（批处理无法便捷计算字符串 sha1；同为 basename 粒度，碰撞特性与官方一致，净化后合法性更好）。平台缓存：Windows `%APPDATA%`、macOS `~/Library/Caches`、Linux `~/.cache`（与官方一致）。
+4. **`-data` 目录**：`<平台缓存>\mayoi-java\jdtls\<净化后的 cwd 目录名>`（净化 = 替换 `\/:*?"<>|` 为 `_`）。**偏离官方 sha1 哈希**（批处理无法便捷计算字符串 sha1；同为 basename 粒度，碰撞特性与官方一致，净化后合法性更好）。平台缓存：Windows `%APPDATA%`、macOS `~/.cache`、Linux `~/.cache`（macOS 与官方 `~/Library/Caches` 不同，launcher 注明 intentional deviation：mayoi-java 命名空间隔离无冲突）。
 5. **参数透传**：`%*` / `"$@"` 追加在末尾（用户可自行 `-data` 覆盖、传 `--jvm-arg` 等）。
 6. **无版本校验、无 pause、无 python**：受管 JRE 恒为 25（版本必然达标）；回退路径失败时 OSGi 报错已含可读原因（Task 1 A3 ② 实测形态）。
 
@@ -302,7 +302,7 @@ if ($existing -and ($existing.Source -notlike "$InstallDir*")) {
 
 # ---- 1. 受管 JRE 25（TUNA 主源，Adoptium 官方回退；已存在则跳过）----
 if (-not (Test-Path (Join-Path $JreDir "bin\java.exe"))) {
-    Step "下载 Temurin JRE 25 (约 45MB)"
+    Step "下载 Temurin JRE 25 (约 56MiB)"
     $zip = Join-Path $TmpDir "jre25.zip"
     $urls = @(
         "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jre/x64/windows/OpenJDK25U-jre_x64_windows_hotspot_25.0.5_8.zip",
@@ -434,7 +434,7 @@ iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootst
 - [ ] **Step 1**: plugin.json `version: "0.2.0"`（清单功能不变，仅版本号）
 - [ ] **Step 2**: README 改写：
   - 顶部"安装"节改为**一条命令**（Windows/POSIX 两行，从 §1.1 复制），注明"自动安装受管 JRE 25 + jdtls，无需 Python，不影响已有 JDK"
-  - 前置要求表收缩为：Mayoi ≥0.19.0 + 网络下载约 95MB（其余全部可选）；已手工安装 jdtls/JDK 的用户可跳过引导（说明检测逻辑）
+  - 前置要求表收缩为：Mayoi ≥0.19.0 + 网络下载约 105MB（其余全部可选）；已手工安装 jdtls/JDK 的用户可跳过引导（说明检测逻辑）
   - 保留"手动安装"节作为进阶路径（现 README 内容改标题保留）
   - 已知限制节补：受管运行时装在 `%LOCALAPPDATA%\mayoi-java`（约 350MB 磁盘）
 - [ ] **Step 3**: JSON 校验 + 三方口径核对（README ↔ plugin.json ↔ PLAN-v0.2）
@@ -444,7 +444,7 @@ iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootst
 
 ## Task 5: 合并、tag、升级测试
 
-- [ ] **Step 1**: `git checkout main && git merge feat/plugin-v1 && git push origin main && git tag v0.2.0 && git push origin v0.2.0`
+- [ ] **Step 1**: `git checkout main && git merge feat/v0.2-bootstrap && git push origin main && git tag v0.2.0 && git push origin v0.2.0`
 - [ ] **Step 2**: 升级测试：当前本机已装 0.1.0（真实安装）→ `mayoi plugin install HelloThreeLiu/mayoi-java` 应更新到 0.2.0（`plugin list` 确认）→ 重开 .java 回归 A1/A2/A5
 - [ ] **Step 3**: index.json PR（**须用户确认后执行**）——条目不变（`name/displayName/description/repository/languages/detect/install`）
 
@@ -464,4 +464,4 @@ iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootst
 | PATH 追加对用户机器的侵入 | 仅追加不覆盖；README 明示；卸载=删目录+删 PATH 条目 |
 | 启动器与 bootstrap 内嵌副本漂移 | PLAN 附注：改启动器必须同步两处；Task 1 Step 1 与 Task 2 Step 3 有逐字一致性检查步骤；内嵌副本内容必须保持纯 ASCII（Set-Content -Encoding ascii 会把非 ASCII 静默变 ?） |
 | POSIX 端到端未验 | 与 C1 同口径声明；Git Bash 假服务器覆盖帧逻辑 |
-| bootstrap 无版本化升级路径（marker/存在性幂等） | jdtls 1.63.0 → 1.64.0 升级需手动删 %LOCALAPPDATA%\mayoi-java\jdtls 后重跑；JRE 侧以 java.exe 存在性为幂等键、无版本标记，Temurin bump 后同理删 %LOCALAPPDATA%\mayoi-java\jre（POSIX：~/.local/share/mayoi-java/ 对应目录） | v0.2.1 或 v0.3：版本化幂等 + 解压后交换（bootstrap.sh 将按此设计） |
+| Windows bootstrap 无版本化升级路径（marker/存在性幂等） | jdtls/jre 升级需手动删 %LOCALAPPDATA%\mayoi-java\jdtls（jre）后重跑；POSIX bootstrap.sh 已实现版本化幂等与解压后交换，无此限制 | v0.2.1：ps1 对齐 sh 的版本化幂等 + 解压后交换 |

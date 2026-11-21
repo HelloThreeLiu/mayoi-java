@@ -1,0 +1,56 @@
+#!/bin/sh
+# mayoi-java 免 Python jdtls 启动器（复刻官方 jdtls.py 启动语义，无版本校验）
+# java 解析：受管 JRE（../jre）> JAVA_HOME > PATH；-data 用净化 cwd 目录名
+set -eu
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+JDTLS_DIR="$HERE/../jdtls"
+
+JAVA_EXE=""
+if [ -x "$HERE/../jre/bin/java" ]; then
+  JAVA_EXE="$HERE/../jre/bin/java"
+elif [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+  JAVA_EXE="$JAVA_HOME/bin/java"
+elif command -v java >/dev/null 2>&1; then
+  JAVA_EXE="java"
+else
+  echo "mayoi-java: 未找到 java。请重跑引导脚本安装受管 JRE，或安装 JDK 21+。" >&2
+  exit 1
+fi
+
+LAUNCHER=""
+if [ -f "$JDTLS_DIR/plugins/org.eclipse.equinox.launcher.jar" ]; then
+  LAUNCHER="$JDTLS_DIR/plugins/org.eclipse.equinox.launcher.jar"
+else
+  for f in "$JDTLS_DIR"/plugins/org.eclipse.equinox.launcher_*.jar; do
+    [ -f "$f" ] && LAUNCHER="$f" && break
+  done
+fi
+[ -n "$LAUNCHER" ] || { echo "mayoi-java: 在 $JDTLS_DIR 下未找到 equinox launcher。" >&2; exit 1; }
+
+case "$(uname -s)" in
+  Darwin) CONFIG_DIR=config_mac ;;
+  *)      CONFIG_DIR=config_linux ;;
+esac
+
+CWD_NAME=$(basename "$(pwd)")
+CWD_NAME=$(printf '%s' "$CWD_NAME" | tr '/:*?"<>| ' '_______ _')
+DATA_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mayoi-java/jdtls/$CWD_NAME"
+mkdir -p "$DATA_DIR"
+
+exec "$JAVA_EXE" \
+  -Declipse.application=org.eclipse.jdt.ls.core.id1 \
+  -Dosgi.bundles.defaultStartLevel=4 \
+  -Declipse.product=org.eclipse.jdt.ls.core.product \
+  -Dosgi.checkConfiguration=true \
+  "-Dosgi.sharedConfiguration.area=$JDTLS_DIR/$CONFIG_DIR" \
+  -Dosgi.sharedConfiguration.area.readOnly=true \
+  -Dosgi.configuration.cascaded=true \
+  -Xms1G \
+  --add-modules=ALL-SYSTEM \
+  --add-opens java.base/java.util=ALL-UNNAMED \
+  --add-opens java.base/java.lang=ALL-UNNAMED \
+  -Djdk.xml.maxGeneralEntitySizeLimit=0 \
+  -Djdk.xml.totalEntitySizeLimit=0 \
+  -jar "$LAUNCHER" \
+  -data "$DATA_DIR" "$@"

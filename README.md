@@ -65,6 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 | `path` | string | `jdtls` | jdtls 程序，按名字或路径（Windows 下若宿主无法按名解析，可设为 `bin\jdtls.bat` 的完整路径） |
 | `javaHome` | string | 空 | JDK 路径；空则自动探测（仅路径 B 使用） |
 | `helperPath` | string | （路径 B 引入时定） | resolver helper 程序路径 |
+| `jvmArgs` | array | `[]` | 语言服务器额外 JVM 参数（如 `["-Xmx1g"]` 限制堆上限）；后写胜出，可覆盖内置 `-Xms256m` |
 
 也可在 settings.json 的 `languageServers` 下按服务器 id `java.server` 覆盖
 `initializationOptions` 等（见官方 `docs/SETTINGS.md`）。
@@ -73,6 +74,8 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 
 - 受管运行时占用约 240MB 磁盘（实测；`%LOCALAPPDATA%\mayoi-java` / `~/.local/share/mayoi-java`）；删除该目录后重跑引导脚本即可重置。
 - Mayoi 0.23 的补全命令（Complete Word）默认无快捷键，建议在设置中自行绑定（如 Ctrl+Alt+Space），或经命令面板触发。
+- JVM 内存：启动器内置参数只有 `-Xms256m`，无 `-Xmx`（JVM 默认上限 = 物理内存 1/4）。大项目用户建议设置 `plugins.java.jvmArgs = ["-Xmx1g"]` 限制堆上限（参数追加在内置项之后，后写胜出）。内存实测参考：小型项目空闲态工作集 ~270MB / 提交 ~460MB。
+- 修改 `jvmArgs` 后需重启语言服务器（如重启 Mayoi）方对新启动的进程生效：Mayoi 的设置热加载仅对 `initializationOptions` 变更自动重启服务器，`args` 变更不在其列。
 
 ## 开发
 

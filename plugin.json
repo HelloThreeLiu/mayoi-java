@@ -1,7 +1,7 @@
 {
   "name": "java",
   "displayName": "Java",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Go to Definition, hovers, completions and problems in Java files, with jdtls",
   "author": "HelloThreeLiu",
   "mayoi": ">=0.19.0",
@@ -12,6 +12,11 @@
         "type": "string",
         "default": "jdtls",
         "description": "The jdtls program, by name or path (on Windows a full path to bin\\jdtls.bat may be required)"
+      },
+      "jvmArgs": {
+        "type": "array",
+        "default": [],
+        "description": "Extra JVM args for the language server, appended after the built-in ones (last one wins; e.g. [\"-Xmx1g\"] caps the heap)"
       }
     },
     "languageServers": [
@@ -19,6 +24,7 @@
         "id": "java.server",
         "languages": ["java"],
         "command": "${settings.path}",
+        "args": ["${settings.jvmArgs}"],
         "install": "brew install jdtls"
       }
     ]

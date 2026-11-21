@@ -1,0 +1,26 @@
+{
+  "name": "java",
+  "displayName": "Java",
+  "version": "0.1.0",
+  "description": "Go to Definition, hovers, completions and problems in Java files, with jdtls",
+  "author": "HelloThreeLiu",
+  "mayoi": ">=0.19.0",
+  "enabled": true,
+  "contributes": {
+    "settings": {
+      "path": {
+        "type": "string",
+        "default": "jdtls",
+        "description": "The jdtls program, by name or path (on Windows a full path to bin\\jdtls.bat may be required)"
+      }
+    },
+    "languageServers": [
+      {
+        "id": "java.server",
+        "languages": ["java"],
+        "command": "${settings.path}",
+        "install": "brew install jdtls"
+      }
+    ]
+  }
+}

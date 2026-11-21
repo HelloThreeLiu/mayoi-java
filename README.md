@@ -1,5 +1,7 @@
 # mayoi-java
 
+![CI](https://github.com/HelloThreeLiu/mayoi-java/actions/workflows/ci.yml/badge.svg)
+
 为 [Mayoi](https://github.com/sorrycc/Mayoi) 编辑器提供 Java 语言支持的插件，基于
 [Eclipse JDT.LS (jdtls)](https://github.com/eclipse-jdtls/eclipse.jdt.ls)。
 
@@ -38,6 +40,19 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 
 完成后重启 Mayoi，打开任意 `.java` 文件即可使用。已手动安装 jdtls/JDK 的用户可跳过引导——检测到 PATH 上已有 jdtls 时脚本会自动跳过运行时安装（见下“手动安装（进阶）”）。
 
+## 更新
+
+- Mayoi 内 **Plugins 页 → Update** 按钮，一键更新到最新版；
+- 或在终端执行：
+
+  ```sh
+  mayoi plugin update java
+  ```
+
+> **注意（Windows）**：Mayoi 运行中更新会因插件目录被占用而失败（上游 issue
+> [sorrycc/Mayoi#233](https://github.com/sorrycc/Mayoi/issues/233)）——请先**完全退出 Mayoi**
+> 再执行更新，更新完成后重新启动。
+
 ## 手动安装（进阶）
 
 不想用引导脚本的用户可按下列步骤手动安装：
@@ -55,6 +70,24 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
    - 官方 `bin/jdtls` 启动脚本为 Python 脚本，此路径需 Python 3.9+
 
 3. Windows 下若宿主无法按名解析 `jdtls`，可在 Mayoi 设置里把 `plugins.java.path` 指向 `bin\jdtls.bat` 的完整路径（见下“设置”）。
+
+## 卸载
+
+1. 移除插件：
+
+   ```sh
+   mayoi plugin remove java
+   ```
+
+2. 删除受管运行时（约 240MB）：
+   - Windows：`%LOCALAPPDATA%\mayoi-java`
+   - macOS / Linux：`~/.local/share/mayoi-java`
+
+3. 清理 PATH 接入：
+   - Windows：在系统“编辑账户的环境变量”里删除用户 PATH 中的 `...\mayoi-java\bin` 条目；
+   - macOS / Linux：删除 `~/.local/bin/jdtls` wrapper（引导脚本写入的 PATH 副本）；若不再需要，
+     可一并移除引导时追加到 rc 文件（`~/.zshrc` / `~/.bashrc`）的
+     `export PATH="$HOME/.local/bin:$PATH"` 行（若该行系其他工具所加则保留）。
 
 ## 设置
 
@@ -74,6 +107,26 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 - Mayoi 0.23 的补全命令（Complete Word）默认无快捷键，建议在设置中自行绑定（如 Ctrl+Alt+Space），或经命令面板触发。
 - JVM 内存：启动器内置参数只有 `-Xms256m`，无 `-Xmx`（JVM 默认上限 = 物理内存 1/4）。大项目用户建议设置 `plugins.java.jvmArgs = ["-Xmx1g"]` 限制堆上限（参数追加在内置项之后，后写胜出）。内存实测参考：小型项目空闲态工作集 ~270MB / 提交 ~460MB。
 - 修改 `jvmArgs` 后需重启语言服务器（如重启 Mayoi）方对新启动的进程生效：Mayoi 的设置热加载仅对 `initializationOptions` 变更自动重启服务器，`args` 变更不在其列。
+
+## 常见问题
+
+**完全无反应 / 无补全快捷键？**
+Mayoi 0.23 的补全命令（Complete Word）默认无快捷键：在设置中自行绑定（如 Ctrl+Alt+Space），
+或经命令面板触发。
+
+**首次打开项目较慢？**
+jdtls 首次导入项目需要时间（本项目实测约 25s，大项目 160s+）。导入完成后，后续打开秒开。
+
+**修改 `jvmArgs` 不生效？**
+需重启语言服务器——重启 Mayoi 最彻底（原因见上“已知限制”）。
+
+**JDK 8 用户需要升级 JDK 吗？**
+不需要：jdtls 运行在插件自带的受管 JRE 25 上，你的 JDK 8 只用于运行自己的程序；
+jdtls 内置的 ECJ 编译器支持 `release=8`，可正常分析老项目。
+
+**Windows 安装/更新报 rename Access denied？**
+先完全退出 Mayoi 再试——运行中的 Mayoi 占用插件目录（上游 issue
+[sorrycc/Mayoi#233](https://github.com/sorrycc/Mayoi/issues/233)）。
 
 ## 开发
 

@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax (POSIX)
+        run: |
+          sh -n bootstrap/bootstrap.sh
+          bash -n bootstrap/bootstrap.sh
+          sh -n launcher/jdtls
+          bash -n launcher/jdtls
+      - name: Plugin manifest JSON
+        run: jq -e . plugin.json > /dev/null
+      - name: Launcher sync (bootstrap embedded copies == launcher files)
+        run: |
+          # ps1 内嵌段（@' ... '@ 之间）与 launcher/jdtls.bat 比较（EOL 归一后逐行一致）
+          awk '/^\$launcher = @'"'"'$/{f=1;next}/^'"'"'@$/{f=0}f' bootstrap/bootstrap.ps1 > /tmp/embedded-bat.txt
+          diff <(tr -d '\r' < /tmp/embedded-bat.txt) <(tr -d '\r' < launcher/jdtls.bat)
+          # sh heredoc（MAYOI_LAUNCHER_EOF 之间）与 launcher/jdtls 比较
+          awk "/<<'MAYOI_LAUNCHER_EOF'/{f=1;next}/^MAYOI_LAUNCHER_EOF\$/{f=0}f" bootstrap/bootstrap.sh > /tmp/embedded-sh.txt
+          diff /tmp/embedded-sh.txt launcher/jdtls
+      - name: No bashism in POSIX sh
+        run: |
+          ! grep -nE '\[\[ |\$\{[A-Za-z_]+:[0-9]|\$\{[A-Za-z_]+//' bootstrap/bootstrap.sh launcher/jdtls
+      - name: Pinned jdtls artifact reachable
+        run: curl -fsI --retry 2 "https://download.eclipse.org/jdtls/milestones/1.63.0/jdt-language-server-1.63.0-202610191322.tar.gz" | head -1
+
+  e2e-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bootstrap.sh (real downloads)
+        shell: bash
+        run: bash bootstrap/bootstrap.sh
+      - name: Verify managed JRE
+        run: "$HOME/.local/share/mayoi-java/jre/bin/java -version"
+      - name: Verify jdtls layout + marker
+        run: |
+          test -f "$HOME/.local/share/mayoi-java/jdtls/.mayoi-java-installed"
+          ls "$HOME/.local/share/mayoi-java/jdtls/plugins"/org.eclipse.equinox.launcher_*.jar
+      - name: Launcher E2E smoke (real POSIX end-to-end)
+        run: |
+          cd "$(mktemp -d)"
+          bash "$GITHUB_WORKSPACE/scripts/lsp-smoke.sh" "$HOME/.local/share/mayoi-java/bin/jdtls"
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse bootstrap.ps1 (pwsh 7)
+        shell: pwsh
+        run: |
+          $e = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("bootstrap\bootstrap.ps1", [ref]$null, [ref]$e)
+          if ($e.Count -gt 0) { $e | ForEach-Object { Write-Host $_.Message }; exit 1 }
+      - name: ASCII-only check
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("bootstrap\bootstrap.ps1")
+          $nonAscii = ($bytes | Where-Object { $_ -gt 127 }).Count
+          if ($nonAscii -gt 0) { Write-Host "non-ASCII bytes: $nonAscii"; exit 1 }
+      - name: EOL attributes pinned
+        shell: pwsh
+        run: |
+          git ls-files --eol launcher/ bootstrap/bootstrap.sh
+          $bat = (git ls-files --eol launcher/jdtls.bat) -join " "
+          if ($bat -notmatch "w/crlf") { Write-Host "bat checkout is not CRLF: $bat"; exit 1 }
+      - name: Run bootstrap.ps1 (real downloads, ~105MB)
+        shell: pwsh
+        run: ./bootstrap/bootstrap.ps1
+      - name: Verify managed JRE + launcher
+        shell: pwsh
+        run: |
+          $jre = Join-Path $env:LOCALAPPDATA "mayoi-java\jre\bin\java.exe"
+          if (-not (Test-Path $jre)) { Write-Host "missing $jre"; exit 1 }
+          & $jre -version 2>&1 | Out-Host
+      - name: Launcher E2E smoke (real Windows end-to-end)
+        shell: pwsh
+        run: |
+          $ws = Join-Path $env:TEMP "ci-smoke-ws"
+          New-Item $ws -ItemType Directory -Force | Out-Null
+          Set-Location $ws
+          & "$env:GITHUB_WORKSPACE\scripts\lsp-smoke.ps1" -Jdtls (Join-Path $env:LOCALAPPDATA "mayoi-java\bin\jdtls.bat")

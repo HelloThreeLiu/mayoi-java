@@ -19,9 +19,17 @@
 |---|---|---|
 | F1 | 官方发行包的启动器是 **Python 脚本**：`bin/jdtls`（shebang `#!/usr/bin/env python3`，加载 `bin/jdtls.py`）、`bin/jdtls.bat`（内容为 `python "%~dp0/jdtls" %*`） | 路径 A 隐含 **Python 3.9+ 依赖**，必须写进前置要求与安装提示 |
 | F2 | `jdtls.bat` 末尾有 **`pause`**，且依赖 PATH 上的 `python`（非 `python3`） | Windows 下服务器进程退出可能挂起在 `pause`；Task 1/3 必须实测 |
-| F3 | `jdtls.py` 强制校验 **JDK ≥ 21**（低于 21 直接抛错；Java ≥ 24 时追加 `-Djdk.xml.maxGeneralEntitySizeLimit=0` 等两个参数） | 规则文档中"≥ 17（待验证）"修正为 **21**；前置要求按 21 写 |
+| F3 | `jdtls.py` 的版本要求随版本演进：**1.63.0 实测需要 Java 25**（OSGi `Require-Capability: osgi.ee=JavaSE/25`，jdt.core 2025-09-22 构建引入）；**1.50.0（2025-09-04）为最后支持 Java 21 的 milestone**；Java ≥ 24 时脚本自动追加 `-Djdk.xml.*` 兼容参数；`jdtls.py` 定位 java 的优先级为 **JAVA_HOME > PATH** | 规则文档中"≥ 17（待验证）"作废；插件 README 前置按"最新 jdtls 需 JDK 25+，1.50.0 及更早需 21+"写 |
 | F4 | `jdtls.py` 的 `-data` 默认目录 = `<平台缓存>/jdtls/jdtls-<sha1(cwd 的目录名)>`（Windows `%APPDATA%\jdtls`，macOS `~/Library/Caches/jdtls`，Linux `~/.cache/jdtls`；hash 只取**目录名**） | 同名目录的不同项目会共用数据目录（索引串扰风险）；路径 B 的 resolver 改用完整路径哈希 |
 | F5 | Mayoi 仓库（sorrycc/Mayoi）外部不可访问（zread 报 repo not found） | 凡宿主行为一律列为"待验证"，以 Task 1/3 真机实测为准；规则文档为唯一权威 |
+| F6 | 用户已提供 Mayoi 0.23.0 源码于 `F:\VibeCodingProject\Mayoi`（Go 项目），`mayoi` CLI = 官方 shim（`%LOCALAPPDATA%\Mayoi\bin\mayoi.cmd`，经应用菜单 File → Install 'mayoi' Command 安装）转发到 `Mayoi.exe`（内部设 `MAYOI_CLI=1`） | Task 2/3 的 CLI 验证可用本机 shim；清单格式以源码为准核实 |
+| F7 | 清单字段 `mayoi`（版本范围语法）、`author`、`enabled`（缺省即开）均在 `internal/plugin/manifest.go` 中定义与校验；服务器条目 `command` 与 `resolve` **互斥**（有 resolve 则不得有 command）；`java` 不在保留名列表 | Task 2 清单格式确定 |
+| F8 | 语言服务器进程 **cwd = workspace root**（`internal/vfs/vfs.go` `cmd.Dir = dir`）；resolver 输出 `env` 覆盖同名继承变量、`unsetEnv` 移除 | Task 1 Step 5 判定成立；Task 4 env 设计确认 |
+| F9 | 用户覆盖**仅 `initializationOptions`**：settings.json `languageServers.<id>.initializationOptions` 按 RFC 7386 深合并（`cmd/mayoi/lsp_resolve.go` withUserOptions）；command/args **不可**被用户覆盖 | Task 3 A9 改测 initializationOptions；V4 关闭 |
+| F10 | 文档语言 = Chroma lexer 名小写去空格（`cmd/mayoi/plugins.go` languageOf），无插件贡献时 `.java` 即 `"java"`；语言服务器按 `languages` 匹配启动 | Task 2 无需贡献 `languages` 块；V5 关闭 |
+| F11 | Windows 本地 spawn 走标准 `exec.Command`（`LookPath` 按 PATHEXT 可命中 `jdtls.bat`，已 `hideWindow` 防窗口闪烁）；启动预算常量 `lspStartTimeout = 30s`、重试间隔 30s（`cmd/mayoi/lsp.go`） | V6 源码层可行；A12 真机复验保留 |
+| F12 | `${settings.x}` 插值要求**非空字符串**（空值直接报错）；args 中的相对路径相对 **workspace root** 解析而非插件目录；resolver stdout 上限 4 MiB、stdin 只收**用户显式保存**的设置（不含默认值）；`mayoi plugin ...` 子命令无需应用运行 | Task 4 helperPath 必须为绝对路径（设计修订，见 Task 4 已知限制） |
+| F13 | `Mayoi.exe` 为 GUI 子系统程序：终端直接调用**捕获不到 stdout**，必须显式管道重定向（`Start-Process -RedirectStandardOutput` / `ProcessStartInfo`） | Task 2/3 所有 mayoi 命令按此模式调用与取证 |
 
 ## 1. 硬性约束（实现时不得违反，摘自 PLUGIN-RULES.md）
 
@@ -105,117 +113,42 @@ Windows 附加确认（对应 F2）：执行 `where jdtls`，确认 PATH 上找�
 
 - [ ] **Step 2: 写 Windows 冒烟脚本 `scripts/lsp-smoke.ps1`**
 
-```powershell
-# scripts/lsp-smoke.ps1 — jdtls stdio 冒烟测试：发送 initialize，等待含 capabilities 的响应
-# 用法（在任意空目录下执行）: pwsh scripts/lsp-smoke.ps1 [-Jdtls <名字或路径>] [-DataDir <目录>]
-# 注意：读响应为阻塞式；长时间无输出即判定失败（Ctrl+C 结束）。
-param(
-    [string]$Jdtls = "jdtls",
-    [string]$DataDir = (Join-Path $env:TEMP "jdtls-smoke")
-)
-$ErrorActionPreference = "Stop"
-
-$init = @{
-    jsonrpc = "2.0"; id = 1; method = "initialize"
-    params  = @{ processId = $PID
-                 rootUri   = ([System.Uri]((Get-Location).Path + "/")).AbsoluteUri
-                 capabilities = @{} }
-} | ConvertTo-Json -Depth 10 -Compress
-
-$bytes = [Text.Encoding]::UTF8.GetByteCount($init)
-$frame = "Content-Length: $bytes`r`n`r`n$init"
-
-$psi = [System.Diagnostics.ProcessStartInfo]::new()
-$psi.RedirectStandardInput  = $true
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError  = $true
-$psi.UseShellExecute = $false
-# Windows 下 .bat 必须经 cmd 启动（这同时验证了宿主用 cmd 语义拉起 jdtls.bat 的可行性）
-if ($env:OS -eq "Windows_NT") {
-    $psi.FileName = "cmd.exe"
-    $psi.Arguments = "/c `"$Jdtls`" -data `"$DataDir`""
-} else {
-    $psi.FileName = $Jdtls
-    $psi.Arguments = "-data `"$DataDir`""
-}
-Write-Host ">> starting: $($psi.FileName) $($psi.Arguments)"
-$p = [System.Diagnostics.Process]::Start($psi)
-$p.StandardInput.Write($frame)
-$p.StandardInput.Flush()
-
-$headers = @{}
-while ($true) {
-    $line = $p.StandardOutput.ReadLine()
-    if ($null -eq $line) { throw "stdout closed before response; stderr: $($p.StandardError.ReadToEnd())" }
-    if ($line -eq "") { break }
-    $idx = $line.IndexOf(":")
-    if ($idx -gt 0) { $headers[$line.Substring(0, $idx).Trim()] = $line.Substring($idx + 1).Trim() }
-}
-$len = [int]$headers["Content-Length"]
-$buf = New-Object char[] $len
-$read = 0
-while ($read -lt $len) {
-    $n = $p.StandardOutput.Read($buf, $read, $len - $read)
-    if ($n -le 0) { throw "stdout EOF at $read/$len" }
-    $read += $n
-}
-$response = -join $buf
-
-if ($env:OS -eq "Windows_NT") { taskkill /PID $p.Id /T /F 2>$null } else { try { $p.Kill() } catch {} }
-Write-Host ">> response (first 500 chars):"
-Write-Host $response.Substring(0, [Math]::Min(500, $response.Length))
-if ($response -match '"capabilities"') { Write-Host "SMOKE OK" -ForegroundColor Green; exit 0 }
-else { throw "SMOKE FAIL: no capabilities in response" }
-```
+> **已实测定型（提交 `47c20c2` → `ff527e0` → `f35152c`，决策门通过）**：内容以仓库
+> `scripts/lsp-smoke.ps1` 为准，不再内嵌全文。关键实现要点（Task 1 实测沉淀，勿回退）：
+>
+> - cmd 启动 `.bat` 必须用 `/s /c ""bat" args""` 整体包裹形式——cmd 会剥 `/c` 后命令行的
+>   首尾引号，3 引号前缀形式实测不可行
+> - `-DataDir` 默认空 = 完全不传 `-data`（等价 Mayoi 宿主的无参启动形态，Step 5 用）
+> - 逐帧读取，跳过 jdt.ls 先行推送的 `language/status` 等 notification，直到含
+>   `"capabilities"` 的响应帧
+> - stderr 在 cmd 层重定向到临时文件（管道 >4KB 无人排水会死锁），失败路径读文件、成功即删
+> - `try/finally` 保证 `taskkill /T /F` 清理；Ctrl+C 退出可能残留子进程（头部注释已注明）
 
 - [ ] **Step 3: 写 macOS/Linux 冒烟脚本 `scripts/lsp-smoke.sh`**
 
-```bash
-#!/usr/bin/env bash
-# scripts/lsp-smoke.sh — jdtls stdio 冒烟测试：发送 initialize，等待含 capabilities 的响应
-# 用法（在任意空目录下执行）: bash scripts/lsp-smoke.sh [jdtls 路径或名字] [data 目录]
-set -euo pipefail
-
-JDTLS="${1:-jdtls}"
-DATA_DIR="${2:-${TMPDIR:-/tmp}/jdtls-smoke}"
-
-init=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":%d,"rootUri":"file://%s","capabilities":{}}}' "$$" "$PWD")
-frame=$(printf 'Content-Length: %d\r\n\r\n%s' "${#init}" "$init")
-
-coproc JDTLS { "$JDTLS" -data "$DATA_DIR"; }
-printf '%s' "$frame" >&"${JDTLS[1]}"
-
-length=""
-while IFS= read -r line <&"${JDTLS[0]}"; do
-  [ -z "$line" ] && break
-  case "$line" in Content-Length:*) length="${line#Content-Length: }" ;; esac
-done
-[ -n "$length" ] || { echo "SMOKE FAIL: no Content-Length header" >&2; exec {JDTLS[1]}>&-; kill "$JDTLS_PID" 2>/dev/null || true; exit 1; }
-
-body=""
-IFS= read -r -N "$length" body <&"${JDTLS[0]}" || true
-exec {JDTLS[1]}>&-
-kill "$JDTLS_PID" 2>/dev/null || true
-
-echo ">> response (first 500 chars):"
-printf '%s\n' "${body:0:500}"
-if [[ "$body" == *'"capabilities"'* ]]; then echo "SMOKE OK"; else echo "SMOKE FAIL: no capabilities" >&2; exit 1; fi
-```
+> **已实测定型（同上提交序列；帧处理逻辑经 Git Bash 4.4 + 假 LSP 服务器回归验证）**：
+> 内容以仓库 `scripts/lsp-smoke.sh` 为准。关键要点：
+>
+> - **需要 bash ≥ 4.0**（`coproc`/`read -N`；macOS 自带 bash 3.2，需 Homebrew bash）
+> - header 行读入后必须剥离尾部 `` `r ``（LSP header 为 CRLF，bash `read` 只剥 `\n`——
+>   不剥离会在目标平台永久挂死，Git Bash 回归已覆盖）
+> - `${DATA_DIR:+-data "$DATA_DIR"}` 实现无-data 模式；coproc 前 `command -v` 存在性检查
+> - stderr 重定向到文件；逐帧跳过 notification；kill 后 `wait` 收割子进程
 
 - [ ] **Step 4: 在空目录跑冒烟测试（stdio 启动验证）**
 
 ```powershell
 # Windows
 mkdir "$env:TEMP\jdtls-smoke-ws" -Force; cd "$env:TEMP\jdtls-smoke-ws"
-pwsh F:\VibeCodingProject\mayoi-java\scripts\lsp-smoke.ps1
+pwsh F:\VibeCodingProject\mayoi-java\scripts\lsp-smoke.ps1 -DataDir "$env:TEMP\jdtls-smoke"
 # 期望: 打印响应前 500 字符（含 "capabilities"）+ 绿色 SMOKE OK
-# 若 jdtls 不在 PATH: pwsh ...\lsp-smoke.ps1 -Jdtls "C:\path\to\jdtls\bin\jdtls.bat"
+# 若 jdtls 不在 PATH: 追加 -Jdtls "C:\path\to\jdtls\bin\jdtls.bat"
 ```
 
 ```bash
 # macOS / Linux
 mkdir -p /tmp/jdtls-smoke-ws && cd /tmp/jdtls-smoke-ws
-bash /path/to/mayoi-java/scripts/lsp-smoke.sh
+bash /path/to/mayoi-java/scripts/lsp-smoke.sh jdtls "$TMPDIR/jdtls-smoke"
 # 期望: 同上 SMOKE OK
 ```
 
@@ -223,19 +156,24 @@ bash /path/to/mayoi-java/scripts/lsp-smoke.sh
 
 - [ ] **Step 5: 验证自动 `-data` workspace 目录（对应规则 4.2 检查项 2 + 事实 F4）**
 
-冒烟通过后检查平台缓存目录是否生成了数据目录：
+机制勘误（以 `jdtls.py` 源码 + 实测为准）：自动 `-data` = `<平台缓存>/jdtls/jdtls-<sha1(cwd 的目录名)>`，
+**仅在不传 `-data` 时生效**——而 Mayoi 宿主正是无参启动（只设 cwd=root），所以本步必须以
+**无 `-data`** 方式运行才作数（与 Step 4 的显式 `-data` 区分开）：
 
 ```powershell
-# Windows: 期望出现 %APPDATA%\jdtls\jdtls-<sha1("jdtls-smoke-ws")>
-Get-ChildItem "$env:APPDATA\jdtls" -ErrorAction SilentlyContinue
+# 在空目录 $env:TEMP\jdtls-smoke-ws 中，不传 -data 拉起 jdtls 并按 Step 4 方式发 initialize。
+# ⚠️ Win32 cwd 陷阱：pwsh 的 Set-Location 不改变 Win32 进程 cwd，.NET 子进程继承
+# [Environment]::CurrentDirectory（实测曾观测到 hash=sha1("mayoi-java")，精确匹配验证）。
+# Mayoi 无此问题——Go cmd.Dir 显式设 cwd（F8）。响应正常后检查:
+Get-ChildItem "$env:APPDATA\jdtls"   # Windows: 期望出现 jdtls-<sha1(子进程真实 cwd 的 basename)>
 ```
 
 ```bash
-# macOS: ls ~/Library/Caches/jdtls   Linux: ls ~/.cache/jdtls
-ls "${XDG_CACHE_HOME:-$HOME/.cache}/jdtls" 2>/dev/null || ls ~/Library/Caches/jdtls
+# macOS/Linux: ls ~/Library/Caches/jdtls 或 ~/.cache/jdtls，期望 jdtls-<sha1(子进程真实 cwd 的 basename)>
 ```
 
-再验证"复用"：在**同一目录**再跑一次冒烟，确认没有新增第二个 `jdtls-<hash>` 目录。
+再验证"复用"：在**同一目录**再跑一次，确认没有新增第二个 `jdtls-<hash>` 目录。
+已知局限：同名目录的不同项目会共用数据目录（F4）；路径 B 的 resolver 用完整路径哈希修复。
 
 - [ ] **Step 6: JDK 缺失报错路径检查（对应规则 4.2 检查项 4）**
 
@@ -335,8 +273,15 @@ pwsh -NoProfile -Command "Get-Content plugin.json -Raw | ConvertFrom-Json | Out-
 
 - [ ] **Step 4: 链接进 Mayoi 热加载开发**
 
+CLI 位置：`%LOCALAPPDATA%\Mayoi\bin\mayoi.cmd`（官方 shim）。**注意 F13**：`Mayoi.exe`
+是 GUI 子系统程序，终端直调捕获不到 stdout——取证时用显式重定向，例如：
+
 ```powershell
-mayoi plugin dev F:\VibeCodingProject\mayoi-java
+$env:MAYOI_CLI = "1"   # 直接调用 Mayoi.exe 时需要；经 shim 调用则 shim 自带
+$out = "$env:TEMP\mayoi-plugin-list.txt"
+Start-Process -FilePath "$env:LOCALAPPDATA\Mayoi\bin\mayoi.cmd" -ArgumentList "plugin","dev","F:\VibeCodingProject\mayoi-java" `
+  -NoNewWindow -Wait -RedirectStandardOutput "$env:TEMP\mayoi-dev.txt" -RedirectStandardError "$env:TEMP\mayoi-dev-err.txt"
+Get-Content "$env:TEMP\mayoi-dev.txt", "$env:TEMP\mayoi-dev-err.txt"
 ```
 
 然后在 Mayoi 中打开一个 `.java` 文件 → **Plugins → Show Language Servers**：
@@ -407,7 +352,7 @@ public class App {
 | A6 | 格式化 | 触发宿主格式化 | 文档被 jdtls 格式化（前提：没有其他插件注册 java formatter） |
 | A7 | Maven 导入 | 直接打开 `test-fixtures/` | 无报错；依赖解析行为记录（离线首次打开可慢，v1 不承诺，如实记录） |
 | A8 | 缺服务器报错 | 把 `plugins.java.path` 改成不存在的值，重开 .java 文件 | 出现明确原因（程序未安装/进程退出/无响应）+ `install` 提示 + **Restart** 按钮；改回后 Restart 可恢复 |
-| A9 | 用户覆盖 | settings.json `languageServers["java.server"]` 覆盖配置（如重指 `command` 到另一 jdtls 路径） | 覆盖生效（同时回答待验证 V4：覆盖是否支持 command 字段） |
+| A9 | 用户覆盖 | settings.json 设置 `languageServers["java.server"].initializationOptions`（一个 jdtls 已知键，重开 .java 文件） | 覆盖以深合并生效（源码确认**仅支持 initializationOptions**，command/args 不可覆盖；README 中如实说明） |
 | A10 | 崩溃恢复 | 杀掉 jdtls 进程 | 宿主重开文档时自动重试；记录 Show Plugin Log 输出 |
 | A11 | 日志可读 | Show Plugin Log 过滤 java | 无刷屏错误 |
 | A12 | Windows `.bat` 语义 | 仅 Windows：观察 A1 是否成功（宿主能否按名解析 `.bat`；F2 的 `pause` 是否影响退出） | 成功即记录；失败则进入 Task 4 决策 |
@@ -762,10 +707,13 @@ public final class Resolve {
 ```
 
 已知限制（写入 README，可接受）：
+- **`helperPath` 必须为绝对路径**（源码事实 F12：`${settings.x}` 插值要求非空字符串，且 args
+  相对路径相对 workspace root 解析而非插件目录）。清单默认值仅为非空占位、实际不可用；
+  用户安装后需在 settings 里设一次真实路径（README 提供可粘贴片段），并在 description 里写明。
+  这是路径 B 的体验减分项，进一步支持"路径 A 优先"的决策；
 - `java` 需在 PATH 上（仅设 `JAVA_HOME` 不设 PATH 的用户需自行加 PATH，或改回路径 A 模式）——
   与官方脚本"PATH 上兜底找 java"的限制同级；
-- `helperPath` 清单默认值 `helper/mayoi-java-resolver.jar` 按相对路径解析，其基准目录是
-  仓库根还是插件安装目录为待验证项 V3；不生效时用户在设置里改成绝对路径即可。
+- resolver 经 `vfs.Command(workspaceRoot, ...)` 启动，cwd = workspace root：与 jdtls 行为无冲突。
 
 - [ ] **Step 2: 编译为 jar 并入库**
 
@@ -816,7 +764,7 @@ Remove-Item -Recurse -Force helper\out   # 中间产物不入库（已在 .gitig
       "helperPath": {
         "type": "string",
         "default": "helper/mayoi-java-resolver.jar",
-        "description": "Path to the bundled resolver helper jar"
+        "description": "Absolute path to the bundled resolver helper jar (relative paths resolve against the opened folder, so an absolute path is required)"
       }
     },
     "languageServers": [
@@ -909,16 +857,17 @@ git tag v0.1.0 && git push origin main --tags
 | 宿主 LSP 不支持 references/rename | 功能边界 | README 明示，绝不承诺；等待核心支持后本插件无需改动即可获得 |
 | Maven/Gradle 首次导入慢/失败（离线环境） | 大项目体验差 | README 标注"取决于 jdtls 自身"，v1 不承诺 |
 
-## 5. 待验证清单（宿主行为，无法离线确认，真机回填结论）
+## 5. 待验证清单（2026-11-20 已按本地 Mayoi 0.23.0 源码核实，见 §0 F6–F13）
 
-| # | 待验证项 | 在哪验证 |
-|---|---|---|
-| V1 | `mayoi` 最低版本字段 `>=0.19.0` 是否准确 | Task 2 Step 4（加载即知） |
-| V2 | 宿主启动服务器进程时 cwd 是否为 workspace root（影响路径 A 自动 `-data` 哈希） | Task 3 A1 + 检查缓存目录名 |
-| V3 | `resolve.command/args` 中相对路径（helperPath 默认值）的解析基准 | Task 4 Step 5 |
-| V4 | settings.json 的 `languageServers` 按 id 覆盖是否支持 `command` | Task 3 A9 |
-| V5 | Chroma 的 java lexer 是否需要插件显式贡献 `languages`（如 `lineComment`） | Task 3 A2–A6 顺带观察注释/高亮 |
-| V6 | Windows 下宿主对 `.bat` 的启动方式（直接 CreateProcess / cmd 语义 / ShellExecute） | Task 3 A12 |
+| # | 待验证项 | 结论 | 剩余动作 |
+|---|---|---|---|
+| V1 | `mayoi` 最低版本字段 `>=0.19.0` | ✅ 字段与语法真实有效（manifest.go 校验版本范围） | 真机加载确认（Task 2 Step 4） |
+| V2 | 宿主启动服务器时 cwd 是否为 workspace root | ✅ **是**（vfs.go `cmd.Dir`） | 无 |
+| V3 | resolve 命令/参数中相对路径的解析基准 | ❌ **相对 workspace root，不可用** → helperPath 必须绝对路径 | Task 4 设计已按此修订 |
+| V4 | settings.json 覆盖是否支持 `command` | ❌ **不支持**，仅 `initializationOptions` 深合并 | Task 3 A9 已改写 |
+| V5 | 是否需要插件显式贡献 `languages`（Chroma） | ✅ **不需要**，`.java` 天然映射语言 `java` | Task 3 A2–A6 顺带确认注释/高亮正常 |
+| V6 | Windows 宿主对 `.bat` 的启动方式 | ✅ 标准 `exec.Command` + PATHEXT + hideWindow | Task 3 A12 真机复验（`pause` 行为） |
+| V7 | `mayoi plugin dev/install` 无需应用运行的假设 | ✅ 成立（`plugins.go` pluginCLI 直接操作插件目录） | 无 |
 
 ## 6. 与规则文档的差异说明
 

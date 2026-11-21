@@ -217,10 +217,19 @@ if (Test-Path $pluginDir) {
     }
     if ($mayoiCli) {
         Step "Installing/updating mayoi-java plugin"
-        $env:MAYOI_CLI = "1"
-        # F13: Mayoi.exe is a GUI-subsystem executable and the mayoi.cmd shim breaks the handle chain -> its stdout may be lost; success is verified by plugin directory state
-        # -WindowStyle Hidden prevents a console window popping for the .cmd shim; no stdout redirect (invalid with -WindowStyle, and unreliable per F13)
-        Start-Process -FilePath $mayoiCli -ArgumentList "plugin","install","HelloThreeLiu/mayoi-java" -WindowStyle Hidden -Wait
+        # CreateNoWindow: no console is allocated at all (Start-Process -WindowStyle Hidden still flashes for .cmd shims,
+        # because conhost appears before the hidden style takes effect).
+        # Wrapped via %ComSpec% /d /c: with UseShellExecute=$false, direct .NET launch of a .cmd is restricted on some
+        # .NET versions; /d ignores AutoRun, and the doubled outer quotes keep spaced paths intact.
+        # The shim sets MAYOI_CLI=1 itself (its content includes `set "MAYOI_CLI=1"`), so we do not set it externally.
+        # No stdout/stderr redirect (F13: shim output is unreliable; success is verified by the directory state below) -
+        # do NOT add RedirectStandardOutput/-Error either (async drain deadlock risk).
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = $env:ComSpec
+        $psi.Arguments = "/d /c `"`"$mayoiCli`" plugin install HelloThreeLiu/mayoi-java`""
+        $psi.CreateNoWindow = $true
+        $psi.UseShellExecute = $false
+        [System.Diagnostics.Process]::Start($psi).WaitForExit()
         if (Test-Path $pluginDir) {
             Write-Host "Plugin installed: $pluginDir" -ForegroundColor Green
         } else {

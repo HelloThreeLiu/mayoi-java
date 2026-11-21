@@ -63,8 +63,6 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 | 键 | 类型 | 默认 | 用途 |
 |---|---|---|---|
 | `path` | string | `jdtls` | jdtls 程序，按名字或路径（Windows 下若宿主无法按名解析，可设为 `bin\jdtls.bat` 的完整路径） |
-| `javaHome` | string | 空 | JDK 路径；空则自动探测（仅路径 B 使用） |
-| `helperPath` | string | （路径 B 引入时定） | resolver helper 程序路径 |
 | `jvmArgs` | array | `[]` | 语言服务器额外 JVM 参数（如 `["-Xmx1g"]` 限制堆上限）；后写胜出，可覆盖内置 `-Xms256m` |
 
 也可在 settings.json 的 `languageServers` 下按服务器 id `java.server` 覆盖

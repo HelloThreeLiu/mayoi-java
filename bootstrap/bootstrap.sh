@@ -10,15 +10,28 @@
 #       安装/升级一律"先解压到 <安装目录>/.tmp-extract 校验、成功才交换"，绝不在校验前删除现有安装。
 # POSIX sh（/bin/sh 兼容，无 bash 特性）。curl 统一 -fsSL -C - --retry 3 --retry-delay 2
 # （macOS 老 curl 不识别 --ssl-no-revoke，故不加）。
+# local 用法依赖：dash / ash(busybox) / mksh / bash / zsh 均支持函数内 local；
+# ksh93 的 POSIX 模式不支持 —— 如需 ksh93 兼容，移除各函数内 local 声明即可（变量全局化不影响正确性）。
+# 下载缓存与解压中间物一律落 <安装目录>/.cache（per-user 私有域，不用共享 /tmp，与 Windows 侧
+# bootstrap.ps1 用 per-user %TEMP% 的做法对称）。
+# PATH 副本（~/.local/bin/jdtls）是 wrapper（绝对路径转发 exec 正本），不是字节拷贝 ——
+# 正本按 $0 相对路径解析 ../jre 与 ../jdtls，字节拷贝会解析错位。
 set -eu
+
+step() { printf '== %s\n' "$1"; }
+warn() { printf '   [警告] %s\n' "$1"; }
+die()  { printf 'mayoi-java: %s\n' "$1" >&2; exit 1; }
+
+# HOME 未设 → 无法确定安装目录（M-7）
+[ -n "${HOME:-}" ] || die "环境变量 HOME 未设置，无法确定安装目录（请在登录 shell 中重跑本脚本）"
 
 INSTALL_DIR="${MAYOI_INSTALL_DIR:-$HOME/.local/share/mayoi-java}"
 BIN_DIR="$INSTALL_DIR/bin"
 JRE_DIR="$INSTALL_DIR/jre"
 JDTLS_DIR="$INSTALL_DIR/jdtls"
 EXTRACT_DIR="$INSTALL_DIR/.tmp-extract"
-TMP_DIR="${TMPDIR:-/tmp}/mayoi-java-bootstrap"
-mkdir -p "$BIN_DIR" "$TMP_DIR"
+CACHE_DIR="$INSTALL_DIR/.cache"    # I-2: 私有缓存域（替代共享的 /tmp/mayoi-java-bootstrap）
+mkdir -p "$BIN_DIR" "$CACHE_DIR" || die "无法创建安装目录 $INSTALL_DIR（权限不足？）"
 
 JDTLS_VERSION="1.63.0"
 # 钉死源哈希：jdtls tar.gz 为全平台同一产物（来源：Task 1 验收时 tar -tzf 全量校验通过的官方包，
@@ -26,18 +39,16 @@ JDTLS_VERSION="1.63.0"
 JDTLS_SHA256="b1f2abe0b3cccb462cf64fb4a5587c7d09df60cf8be7748b152cbd89d018bdc4"
 JDTLS_URL="https://download.eclipse.org/jdtls/milestones/1.63.0/jdt-language-server-1.63.0-202610191322.tar.gz"
 
-step() { printf '== %s\n' "$1"; }
-warn() { printf '   [警告] %s\n' "$1"; }
-die()  { printf 'mayoi-java: %s\n' "$1" >&2; exit 1; }
-
 # ---- 平台矩阵（JRE 下载目标；Git Bash/MINGW 落 *) linux 分支，仅用于流程冒烟）----
 case "$(uname -s)" in
     Darwin) plat_os="mac" ;;
     *)      plat_os="linux" ;;
 esac
+# 显式架构白名单（M-5）：i686/armv7l 等不再静默下载不可运行产物
 case "$(uname -m)" in
-    aarch64|arm64) plat_arch="aarch64" ;;
-    *)             plat_arch="x64" ;;
+    x86_64|amd64)      plat_arch="x64" ;;
+    aarch64|arm64)     plat_arch="aarch64" ;;
+    *) die "不支持的 CPU 架构: $(uname -m)（仅支持 x86_64/amd64 与 aarch64/arm64）" ;;
 esac
 TUNA_DIR="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jre/$plat_arch/$plat_os/"
 # 回退源为浮动 latest（302 → 官方 CDN），无法钉死哈希 —— 与 Windows 侧 bootstrap.ps1 的 M6 结论
@@ -47,16 +58,40 @@ JRE_API_URL="https://api.adoptium.net/v3/binary/latest/25/ga/$plat_os/$plat_arch
 # 统一 curl 参数（断点续传 + 重试）
 fetch() { curl -fsSL -C - --retry 3 --retry-delay 2 -o "$1" "$2"; }
 
-# ---- 哈希工具探测：sha256sum 优先，缺失用 shasum -a 256，都无则跳过校验并打印警告 ----
-SHA_CMD=""
+# TUNA 目录页抓取最新 JRE 文件名（M-6，归拢重复逻辑；失败 → 空）
+tuna_latest_name() {
+    curl -fsSL "$TUNA_DIR" | grep -o 'OpenJDK25U-jre_[^"]*\.tar\.gz' | head -n 1 || true
+}
+
+# ---- 哈希工具探测（M-4）：sha256sum → shasum -a 256 → openssl dgst -sha256 ----
+SHA_KIND=""
 if command -v sha256sum >/dev/null 2>&1; then
-    SHA_CMD="sha256sum"
+    SHA_KIND="sha256sum"
 elif command -v shasum >/dev/null 2>&1; then
-    SHA_CMD="shasum -a 256"
+    SHA_KIND="shasum"
+elif command -v openssl >/dev/null 2>&1; then
+    SHA_KIND="openssl"
 fi
 
+# 输出 $1 的小写十六进制 SHA256；工具缺失时输出空串
+sha256_of() {
+    case "$SHA_KIND" in
+        sha256sum) sha256sum "$1" | cut -d' ' -f1 ;;
+        shasum)    shasum -a 256 "$1" | cut -d' ' -f1 ;;
+        openssl)   openssl dgst -sha256 "$1" | awk '{print $NF}' ;;
+        *) : ;;
+    esac
+}
+
+# M-3 捷径判定：缓存文件非空且哈希命中钉死值
+jdtls_cache_ok() {
+    [ -n "$SHA_KIND" ] || return 1
+    h=$(sha256_of "$1") || return 1
+    [ "$h" = "$JDTLS_SHA256" ]
+}
+
 # ---- 0. 已有 jdtls 检测（幂等矩阵第一行：PATH 上已有非受管 jdtls → 全跳过，仅保留插件步骤）----
-# 受管启动器（$INSTALL_DIR/bin/jdtls 及其 ~/.local/bin PATH 副本）不算"外部" jdtls。
+# 受管启动器（$INSTALL_DIR/bin/jdtls 及其 ~/.local/bin PATH wrapper）不算"外部" jdtls。
 skip_runtime=false
 existing_jdtls=$(command -v jdtls 2>/dev/null || true)
 if [ -n "$existing_jdtls" ] && [ -x "$existing_jdtls" ]; then
@@ -70,6 +105,18 @@ if [ -n "$existing_jdtls" ] && [ -x "$existing_jdtls" ]; then
     esac
 fi
 
+# I-1②：退役受管残留 PATH 副本（仅在 skip_runtime 分支调用）。
+# 选择"直接退役（删除）"而非仅警告：此时外部 jdtls 生效，而受管 wrapper 在 PATH 上（典型顺序
+# ~/.local/bin 先于系统目录）会**遮蔽外部 jdtls**，且正本一旦缺失 wrapper 自身必坏（exec 目标
+# 不存在，无自愈路径）——删除是唯一同时消除"遮蔽"与"必坏"的动作；且该文件带 mayoi-java 指纹、
+# 是本脚本产物，删除不涉及用户自放文件（用户文件场景由第 5 步所有权守门排除）。
+retire_stale_copy() {
+    dest="$HOME/.local/bin/jdtls"
+    if [ -f "$dest" ] && grep -q mayoi-java "$dest" 2>/dev/null; then
+        rm -f "$dest" && echo "已退役受管 PATH 副本: $dest（外部 jdtls 生效；受管副本会遮蔽它且可能已失联，删除以恢复外部优先）"
+    fi
+}
+
 ensure_jre() {
     # ---- 1. 受管 JRE 25（TUNA 主源按平台矩阵 + Adoptium 官方 API 回退；版本化幂等 + 解压后交换）----
     local need=true marker_val="" inner="" d
@@ -80,8 +127,7 @@ ensure_jre() {
         if [ -f "$jre_marker" ]; then
             jre_installed=$(tr -d '\r' < "$jre_marker")
         fi
-        # TUNA 目录页抓取目标文件名（失败 → 空 → 保留现有或走 API 回退）
-        jre_desired=$(curl -fsSL "$TUNA_DIR" | grep -o 'OpenJDK25U-jre_[^"]*\.tar\.gz' | head -n 1 || true)
+        jre_desired=$(tuna_latest_name)
         if [ -n "$jre_desired" ] && [ "$jre_installed" = "$jre_desired" ]; then
             echo "受管 JRE 已存在且版本匹配（$jre_desired），跳过"
             need=false
@@ -98,7 +144,7 @@ ensure_jre() {
 
     # 首装路径同样先抓 TUNA 文件名（主源）；抓取失败 → 空 → Adoptium API 回退
     if [ -z "$jre_desired" ]; then
-        jre_desired=$(curl -fsSL "$TUNA_DIR" | grep -o 'OpenJDK25U-jre_[^"]*\.tar\.gz' | head -n 1 || true)
+        jre_desired=$(tuna_latest_name)
     fi
 
     step "下载 Temurin JRE 25 ($plat_os/$plat_arch，约 45MB)"
@@ -106,7 +152,7 @@ ensure_jre() {
     local cache="" ok=false
     if [ -n "$jre_desired" ]; then
         echo "   源: $TUNA_DIR$jre_desired"
-        cache="$TMP_DIR/$jre_desired"
+        cache="$CACHE_DIR/$jre_desired"
         if fetch "$cache" "$TUNA_DIR$jre_desired"; then
             marker_val="$jre_desired"
             ok=true
@@ -116,7 +162,7 @@ ensure_jre() {
     fi
     if [ "$ok" = false ]; then
         # 浮动源旧缓存不可安全续传（版本可能已变，拼接会产出坏包）——先清缓存全量下载
-        cache="$TMP_DIR/jre-adoptium-api-$plat_os-$plat_arch.tar.gz"
+        cache="$CACHE_DIR/jre-adoptium-api-$plat_os-$plat_arch.tar.gz"
         rm -f "$cache"
         echo "   源: $JRE_API_URL"
         if fetch "$cache" "$JRE_API_URL"; then
@@ -174,6 +220,12 @@ ensure_jdtls() {
     [ -z "$installed" ] || echo "受管 jdtls 版本变更: $installed → $JDTLS_VERSION，重装"
     step "安装 jdtls $JDTLS_VERSION (约 49MB；eclipse.org 国内较慢，失败重跑可续传)"
 
+    # M-4 收紧：默认 eclipse 源在全无哈希工具时直接拒绝（提前 die，不浪费 49MB 下载）；
+    # 本地/自定义源无工具时仅警告跳过校验（见下方校验段）。
+    if [ -z "$SHA_KIND" ] && [ -z "${MAYOI_JDTLS_TGZ:-}" ]; then
+        die "未找到 sha256sum / shasum / openssl，无法校验官方 jdtls 包完整性 —— 拒绝从默认源安装。请安装任一哈希工具后重跑，或设 MAYOI_JDTLS_TGZ 指向本地包（本地源将跳过校验并警告）"
+    fi
+
     src="${MAYOI_JDTLS_TGZ:-}"
     if [ -n "$src" ] && [ -f "$src" ]; then
         tgz="$src"
@@ -183,18 +235,25 @@ ensure_jdtls() {
             http://*|https://*)
                 echo "   自定义源: $src"
                 # 缓存名用 URL 哈希前 16 位（ps1 Get-UrlKey 同构）：保证 -C - 续传绝不把两个不同源的字节拼进同一个文件
-                if [ -n "$SHA_CMD" ]; then
-                    url_key=$(printf '%s' "$src" | $SHA_CMD | cut -d' ' -f1 | cut -c 1-16)
+                if [ -n "$SHA_KIND" ]; then
+                    case "$SHA_KIND" in
+                        sha256sum) url_key=$(printf '%s' "$src" | sha256sum | cut -d' ' -f1 | cut -c 1-16) ;;
+                        shasum)    url_key=$(printf '%s' "$src" | shasum -a 256 | cut -d' ' -f1 | cut -c 1-16) ;;
+                        openssl)   url_key=$(printf '%s' "$src" | openssl dgst -sha256 | awk '{print $NF}' | cut -c 1-16) ;;
+                    esac
                 fi
                 if [ -n "$url_key" ]; then
-                    tgz="$TMP_DIR/custom-$url_key.tar.gz"
+                    tgz="$CACHE_DIR/custom-$url_key.tar.gz"
                 else
                     base=${src##*/}
                     base=${base%%\?*}
                     [ -n "$base" ] || base="jdtls-custom.tar.gz"
-                    tgz="$TMP_DIR/$base"
+                    tgz="$CACHE_DIR/$base"
                 fi
-                if ! fetch "$tgz" "$src"; then
+                # M-3 捷径：缓存完整且哈希命中钉死值 → 跳过下载（消老 curl 416 死循环边界）
+                if [ -s "$tgz" ] && jdtls_cache_ok "$tgz"; then
+                    echo "   已有缓存且哈希命中钉死值，跳过下载"
+                elif ! fetch "$tgz" "$src"; then
                     die "jdtls 下载失败（已保留部分文件 $tgz，重跑本脚本可续传）"
                 fi
                 ;;
@@ -205,22 +264,26 @@ ensure_jdtls() {
     else
         echo "   源: $JDTLS_URL （也可手动下载后设 MAYOI_JDTLS_TGZ 指向它）"
         # 固定产物 → 固定缓存文件名 → -C - 续传安全；成功后清理
-        tgz="$TMP_DIR/jdt-language-server-$JDTLS_VERSION-202610191322.tar.gz"
+        tgz="$CACHE_DIR/jdt-language-server-$JDTLS_VERSION-202610191322.tar.gz"
         is_temp_cache=true
-        if ! fetch "$tgz" "$JDTLS_URL"; then
+        # M-3 捷径：缓存完整且哈希命中钉死值 → 跳过下载
+        if [ -s "$tgz" ] && jdtls_cache_ok "$tgz"; then
+            echo "   已有缓存且哈希命中钉死值，跳过下载"
+        elif ! fetch "$tgz" "$JDTLS_URL"; then
             die "jdtls 下载失败（已保留部分文件 $tgz，重跑本脚本可续传）"
         fi
     fi
 
-    if [ -n "$SHA_CMD" ]; then
+    if [ -n "$SHA_KIND" ]; then
         step "校验 jdtls SHA256（钉死值）"
-        actual=$($SHA_CMD "$tgz" | cut -d' ' -f1)
+        actual=$(sha256_of "$tgz")
         if [ "$actual" != "$JDTLS_SHA256" ]; then
             die "jdtls SHA256 不匹配（期望 $JDTLS_SHA256，实际 ${actual:-空}）：文件损坏或非 $JDTLS_VERSION 官方包: $tgz"
         fi
         echo "   SHA256 校验通过"
     else
-        warn "未找到 sha256sum / shasum，跳过 jdtls SHA256 校验"
+        # 只可能到达本地/自定义源（默认源已在下载前 die）
+        warn "未找到 sha256sum / shasum / openssl，跳过 jdtls SHA256 校验（本地/自定义源）"
     fi
 
     step "解压 jdtls（先解压校验，成功才交换）"
@@ -256,6 +319,7 @@ ensure_jdtls() {
 }
 
 if [ "$skip_runtime" = true ]; then
+    retire_stale_copy
     echo "（检测到现有 jdtls）跳过受管运行时 / 启动器 / PATH 步骤。"
 else
 
@@ -331,6 +395,7 @@ chmod +x "$BIN_DIR/jdtls"
 
 # ---- 4. PATH（~/.local/bin 不在 PATH 时 best-effort 追加到存在的 rc；仅追加，绝不覆盖）----
 local_bin_on_path=false
+path_via_rc_only=false    # C-1: ~/.local/bin 仅经 rc 接入（需重开终端生效）→ 影响完成语
 case ":$PATH:" in
     *":$HOME/.local/bin:"*|*":$HOME/.local/bin/:"*) local_bin_on_path=true ;;
 esac
@@ -349,28 +414,36 @@ else
     fi
     if [ -n "$rc_file" ]; then
         step "追加 \$HOME/.local/bin 到 PATH（$rc_file）"
-        if grep -q "mayoi-java" "$rc_file" 2>/dev/null; then
-            echo "   $rc_file 已含 mayoi-java 条目，跳过"
+        # M-8: 精确行去重（避免误判用户 rc 里恰好提到 mayoi-java 的无关行）
+        if grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$rc_file" 2>/dev/null; then
+            echo "   $rc_file 已含 mayoi-java PATH 条目，跳过"
+            local_bin_on_path=true
+            path_via_rc_only=true
+        elif printf '\n# added by mayoi-java bootstrap (managed jdtls)\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc_file"; then
+            local_bin_on_path=true    # M-1: 仅在追加成功后置位
+            path_via_rc_only=true
+            echo "已就绪（新开的终端生效；当前终端可执行: source $rc_file）"
         else
-            { printf '\n# added by mayoi-java bootstrap (managed jdtls)\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc_file"; } \
-                || warn "写入 $rc_file 失败，请手动把 $HOME/.local/bin 加入 PATH"
+            warn "写入 $rc_file 失败，请手动把 $HOME/.local/bin 加入 PATH"
         fi
-        local_bin_on_path=true    # rc 已就绪 → 新开的终端即命中
-        echo "已就绪（新开的终端生效；当前终端可执行: source $rc_file）"
     else
         warn "未找到可追加的 rc（~/.zshrc / ~/.bashrc），请手动把 $HOME/.local/bin 加入 PATH"
     fi
 fi
 
-# ---- 5. 启动器 PATH 副本（Mayoi 插件默认 command: "jdtls" 靠 PATH 命中）----
-# ~/.local/bin 在 PATH 上（或刚经第 4 步接入 rc，重开终端后即命中）→ 复制一份到那里；
-# 两头都不通 → 提示用户手动把 $INSTALL_DIR/bin 加入 PATH。
+# ---- 5. 启动器 PATH 副本（C-1: wrapper 转发正本，绝不字节拷贝）----
+# 字节拷贝必坏：正本按 $0 相对路径解析 ../jre 与 ../jdtls，拷到 ~/.local/bin 后解析错位。
+# wrapper 用绝对路径 exec 转发，正本收到的 $0 即其真实位置，相对解析保持正确。
+# I-1①: 目标已存在但非本脚本产物（无 mayoi-java 指纹）→ 不覆盖用户文件，仅警告。
 if [ "$local_bin_on_path" = true ]; then
-    if mkdir -p "$HOME/.local/bin" 2>/dev/null; then
-        if cp -f "$BIN_DIR/jdtls" "$HOME/.local/bin/jdtls" && chmod +x "$HOME/.local/bin/jdtls"; then
-            echo "启动器 PATH 副本已就位: $HOME/.local/bin/jdtls"
+    dest="$HOME/.local/bin/jdtls"
+    if [ -f "$dest" ] && ! grep -q mayoi-java "$dest" 2>/dev/null; then
+        warn "$dest 已存在且非本脚本产物（无 mayoi-java 指纹），不覆盖 —— 请自行决定保留或移除该文件"
+    elif mkdir -p "$HOME/.local/bin" 2>/dev/null; then
+        if { printf '#!/bin/sh\n# mayoi-java managed launcher wrapper — forwards to canonical copy (re-run bootstrap to refresh)\nexec "%s" "$@"\n' "$BIN_DIR/jdtls" > "$dest" && chmod +x "$dest"; }; then
+            echo "启动器 PATH 副本（wrapper）已就位: $dest -> $BIN_DIR/jdtls"
         else
-            warn "复制启动器到 $HOME/.local/bin 失败"
+            warn "写入 $dest 失败"
         fi
     else
         warn "无法创建 $HOME/.local/bin，请手动把 $BIN_DIR 加入 PATH"
@@ -403,7 +476,9 @@ fi
 
 printf '\n'
 if [ "$skip_runtime" = true ]; then
-    echo "完成。重启 Mayoi 后打开任意 .java 文件即可使用（检测到现有 jdtls，语言服务将按 PATH 使用它）。"
+    echo "完成。检测到外部 jdtls 生效，语言服务将按 PATH 使用它 —— 重启 Mayoi 后打开任意 .java 文件即可。"
+elif [ "$path_via_rc_only" = true ]; then
+    echo "完成。~/.local/bin 刚接入 PATH（经 rc）—— 请重开终端（或 source rc）让 PATH 生效，再重启 Mayoi 打开任意 .java 文件即可使用（语言服务由受管 JRE + 免 Python 启动器拉起）。"
 else
     echo "完成。重启 Mayoi 后打开任意 .java 文件即可使用（语言服务由受管 JRE + 免 Python 启动器拉起）。"
 fi

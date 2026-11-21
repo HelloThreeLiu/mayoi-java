@@ -18,14 +18,14 @@ Java 语法高亮由 Mayoi 内置（Chroma lexer）提供，插件无需贡献�
 | 依赖 | 版本 | 说明 |
 |---|---|---|
 | Mayoi | >= 0.19.0 | 待实际核对最低版本 |
-| JDK | 最新 jdtls（1.51+，本机验证 1.63.0）需 JDK 25+；jdtls 1.50.0 及更早需 21+ | jdtls 启动脚本强制校验（Java >= 24 时脚本自动追加兼容参数）。jdtls 官方启动脚本优先使用 `JAVA_HOME` 指向的 JDK——请确保它满足上述版本要求 |
-| Python | 3.9+ | 仅路径 A（官方 `bin/jdtls` 启动脚本为 Python 脚本） |
-| jdtls | 1.9.0+（本机验证 1.63.0） | macOS: `brew install jdtls`；其他平台从 [官方 milestones](https://download.eclipse.org/jdtls/milestones/) 下载解压 |
+| JDK | 21+（jdtls 1.51+ 需 25+） | jdtls 1.51+ 需 JDK 25+，约 1.50.0 及更早需 21+（截至本验证时点）。jdtls 启动脚本强制校验（Java >= 24 时脚本自动追加兼容参数）。jdtls 官方启动脚本优先使用 `JAVA_HOME` 指向的 JDK——请确保它满足上述版本要求 |
+| Python | 3.9+ | 路径 A（当前版本的唯一启动方式，各平台均需；官方 `bin/jdtls` 启动脚本为 Python 脚本） |
+| jdtls | 1.9.0+（本机验证 1.63.0） | macOS: `brew install jdtls`；其他平台从 [官方 milestones](https://download.eclipse.org/jdtls/milestones/) 下载解压后将 `bin` 目录加入 PATH；或在 Mayoi 设置里把 `plugins.java.path` 指向 `bin\jdtls.bat` 的完整路径 |
 
 ## 安装
 
 ```sh
-mayoi plugin install HelloThreeLiu/mayoi-java   # （Task 5 发布 GitHub 后可用）
+mayoi plugin install HelloThreeLiu/mayoi-java   # （仓库发布到 GitHub 后可用）
 ```
 
 ## 设置

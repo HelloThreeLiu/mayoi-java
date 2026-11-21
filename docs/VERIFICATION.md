@@ -151,7 +151,7 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 
 ## Task 3 真机验收（2026-11-21 / Mayoi 0.23.1 / Windows / jdtls 1.63.0 / JDK 25.0.5.1 / 插件经 junction 链接）
 
-验收环境：`~/.mayoi/plugins/java`（junction → 本仓库，`mayoi plugin dev` 的 symlink 因开发者模式未开改用 junction，见 D1）；用户 settings.json 配置 `plugins.java.path = C:\Users\10966\AppData\Local\Programs\jdtls\bin\jdtls.bat`（完整路径——本机 PATH 上无 jdtls，属 README 载明的 Windows 正常配置形态）。
+验收环境：`~/.mayoi/plugins/java`（junction → 本仓库；`mayoi plugin dev` 的 symlink 需 Windows 开发者模式，本机未开，故以无需特权的目录 junction 落地，与真 symlink 的差异见上文遗留节）；用户 settings.json 配置 `plugins.java.path = %LOCALAPPDATA%\Programs\jdtls\bin\jdtls.bat`（完整路径——本机 PATH 上无 jdtls，属 README 载明的 Windows 正常配置形态）。
 
 ### 验收矩阵结果
 

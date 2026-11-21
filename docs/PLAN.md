@@ -74,8 +74,8 @@ mayoi-java/                     # 仓库根 = 插件目录（mayoi plugin instal
 | 里程碑 | 任务 | 产出 | 状态 |
 |---|---|---|---|
 | M0 仓库与计划 | — | git 仓库、PLUGIN-RULES、PLAN | ✅ 本次提交完成 |
-| M1 环境与路径 A 验证 | Task 1 | 冒烟脚本、验证结论、决策门判定 | 待执行 |
-| M2 v1 插件（路径 A） | Task 2 | plugin.json、README、LICENSE | 待执行（Task 1 通过才做） |
+| M1 环境与路径 A 验证 | Task 1 | 冒烟脚本、验证结论、决策门判定 | ✅ 完成（2026-11-21，决策门全过） |
+| M2 v1 插件（路径 A） | Task 2 | plugin.json、README、LICENSE | ✅ 完成（2026-11-21，真实 Mayoi 解析通过） |
 | M3 真机验收 | Task 3 | VERIFICATION.md、验收矩阵结论 | ✅ 完成（2026-11-21，A1–A12 全过，A13 SSH 留待补测） |
 | M4 路径 B resolver | Task 4 | helper jar、resolve 模式清单 | ⏭️ **跳过**（路径 A 决策门全过，条件未触发） |
 | M5 发布 | Task 5 | GitHub、index.json PR | 待执行 |

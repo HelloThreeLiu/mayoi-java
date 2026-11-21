@@ -226,7 +226,7 @@ case "$(uname -s)" in
 esac
 
 CWD_NAME=$(basename "$(pwd)")
-CWD_NAME=$(printf '%s' "$CWD_NAME" | tr '/:*?"<>| ' '_______ _')
+CWD_NAME=$(printf '%s' "$CWD_NAME" | tr '/:*?"<>| ' '_________')
 DATA_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mayoi-java/jdtls/$CWD_NAME"
 mkdir -p "$DATA_DIR"
 

@@ -1,6 +1,8 @@
 #!/bin/sh
 # mayoi-java 免 Python jdtls 启动器（复刻官方 jdtls.py 启动语义，无版本校验）
 # java 解析：受管 JRE（../jre）> JAVA_HOME > PATH；-data 用净化 cwd 目录名
+# NOTE: official-style --jvm-arg= / --java-executable / -data overrides are NOT parsed here; all args are passed through verbatim to java
+# NOTE: Darwin intentionally uses the same XDG-style cache root as Linux instead of ~/Library/Caches (mayoi-java namespace isolation; intentional deviation)
 set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
@@ -34,8 +36,9 @@ case "$(uname -s)" in
 esac
 
 CWD_NAME=$(basename "$(pwd)")
-CWD_NAME=$(printf '%s' "$CWD_NAME" | tr '/:*?"<>| ' '_______ _')
-DATA_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mayoi-java/jdtls/$CWD_NAME"
+CWD_NAME=$(printf '%s' "$CWD_NAME" | tr '/:*?"<>| ' '_________')
+CWD_NAME=$(printf '%s' "$CWD_NAME" | cut -c1-64)
+DATA_DIR="${XDG_CACHE_HOME:-${HOME:-${TMPDIR:-/tmp}}/.cache}/mayoi-java/jdtls/$CWD_NAME"
 mkdir -p "$DATA_DIR"
 
 exec "$JAVA_EXE" \

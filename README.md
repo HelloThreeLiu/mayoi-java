@@ -25,7 +25,7 @@ Java 语法高亮由 Mayoi 内置（Chroma lexer）提供，插件无需贡献�
 ## 安装
 
 ```sh
-mayoi plugin install HelloThreeLiu/mayoi-java   # （仓库发布到 GitHub 后可用）
+mayoi plugin install HelloThreeLiu/mayoi-java
 ```
 
 ## 设置
@@ -53,6 +53,12 @@ mayoi plugin dev <本目录>   # 链接进 Mayoi，保存即热加载
 - 开发规则与设计备忘：`PLUGIN-RULES.md`
 - 实施计划：`docs/PLAN.md`
 - 验收记录：`docs/VERIFICATION.md`
+
+## 兼容承诺
+
+- 语言服务器 id `java.server` 跨版本不变；
+- `plugins.java.*` 设置键只增不删不改名；
+- 破坏性变更升 major 版本并在此处说明。
 
 ## License
 

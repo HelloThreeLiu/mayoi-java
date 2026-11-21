@@ -39,6 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 
 一条命令完成后：受管 JRE + jdtls 已装好、启动器已进 PATH、（若检测到 mayoi CLI）插件本体已安装。用户重启 Mayoi 打开 `.java` 即可用。
 
+注：bootstrap scripts are ASCII-only (PS 5.1 `-File` compatibility); progress messages are English。
+
 ### 1.2 安装布局（固定，启动器按相对路径引用 JRE）
 
 ```

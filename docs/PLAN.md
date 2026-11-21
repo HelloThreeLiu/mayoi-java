@@ -29,7 +29,7 @@
 | F10 | 文档语言 = Chroma lexer 名小写去空格（`cmd/mayoi/plugins.go` languageOf），无插件贡献时 `.java` 即 `"java"`；语言服务器按 `languages` 匹配启动 | Task 2 无需贡献 `languages` 块；V5 关闭 |
 | F11 | Windows 本地 spawn 走标准 `exec.Command`（`LookPath` 按 PATHEXT 可命中 `jdtls.bat`，已 `hideWindow` 防窗口闪烁）；启动预算常量 `lspStartTimeout = 30s`、重试间隔 30s（`cmd/mayoi/lsp.go`） | V6 源码层可行；A12 真机复验保留 |
 | F12 | `${settings.x}` 插值要求**非空字符串**（空值直接报错）；args 中的相对路径相对 **workspace root** 解析而非插件目录；resolver stdout 上限 4 MiB、stdin 只收**用户显式保存**的设置（不含默认值）；`mayoi plugin ...` 子命令无需应用运行 | Task 4 helperPath 必须为绝对路径（设计修订，见 Task 4 已知限制） |
-| F13 | `Mayoi.exe` 为 GUI 子系统程序：终端直接调用**捕获不到 stdout**，必须显式管道重定向（`Start-Process -RedirectStandardOutput` / `ProcessStartInfo`） | Task 2/3 所有 mayoi 命令按此模式调用与取证 |
+| F13 | `Mayoi.exe` 为 GUI 子系统程序：终端直调捕获不到 stdout，须显式管道重定向。**且不得经 cmd shim 转发**（`cli_windows.go` 的 `attachConsole` 依赖直接传给 exe 的 std 句柄，shim 层会弄断句柄链 → 0 字节输出；实测 shim 下连 `plugin --help` 都无输出，直调 exe + 预设 `MAYOI_CLI=1` 则全部正常）。**正确取证方式：当前 shell 先 `$env:MAYOI_CLI="1"`，再 `Start-Process -FilePath "D:\Development\ProgrammingTools\Mayoi\Mayoi.exe" -RedirectStandardOutput/-RedirectStandardError`** | Task 3/5 所有 mayoi 命令按此调用与取证（shim 仅适合交互终端人工使用） |
 
 ## 1. 硬性约束（实现时不得违反，摘自 PLUGIN-RULES.md）
 
@@ -271,21 +271,26 @@ pwsh -NoProfile -Command "Get-Content plugin.json -Raw | ConvertFrom-Json | Out-
 # 期望输出: JSON OK
 ```
 
-- [ ] **Step 4: 链接进 Mayoi 热加载开发**
+2. **链接进 Mayoi 热加载开发**（Task 1 实施时已由控制器裁决的落地方式）
 
-CLI 位置：`%LOCALAPPDATA%\Mayoi\bin\mayoi.cmd`（官方 shim）。**注意 F13**：`Mayoi.exe`
-是 GUI 子系统程序，终端直调捕获不到 stdout——取证时用显式重定向，例如：
+   `mayoi plugin dev` 内部用 `os.Symlink`，Windows 需**开发者模式**（本机未开启 → 特权报错）。
+   已用**无需特权的目录 junction** 落地（验证 `mayoi plugin list` 能列出 `java 0.1.0` 即清单解析通过）：
 
-```powershell
-$env:MAYOI_CLI = "1"   # 直接调用 Mayoi.exe 时需要；经 shim 调用则 shim 自带
-$out = "$env:TEMP\mayoi-plugin-list.txt"
-Start-Process -FilePath "$env:LOCALAPPDATA\Mayoi\bin\mayoi.cmd" -ArgumentList "plugin","dev","F:\VibeCodingProject\mayoi-java" `
-  -NoNewWindow -Wait -RedirectStandardOutput "$env:TEMP\mayoi-dev.txt" -RedirectStandardError "$env:TEMP\mayoi-dev-err.txt"
-Get-Content "$env:TEMP\mayoi-dev.txt", "$env:TEMP\mayoi-dev-err.txt"
-```
+   ```powershell
+   cmd /c mklink /J "$env:USERPROFILE\.mayoi\plugins\java" "F:\VibeCodingProject\mayoi-java"
+   # 取证按 F13：直调 Mayoi.exe + 预设 MAYOI_CLI=1 + Start-Process 重定向
+   $env:MAYOI_CLI = "1"
+   Start-Process -FilePath "D:\Development\ProgrammingTools\Mayoi\Mayoi.exe" -ArgumentList "plugin","list" `
+     -NoNewWindow -Wait -RedirectStandardOutput "$env:TEMP\mayoi-list.txt" -RedirectStandardError "$env:TEMP\mayoi-list-err.txt"
+   Get-Content "$env:TEMP\mayoi-list.txt", "$env:TEMP\mayoi-list-err.txt"   # 期望出现 java 0.1.0
+   ```
 
-然后在 Mayoi 中打开一个 `.java` 文件 → **Plugins → Show Language Servers**：
-期望看到 `java.server`，状态为运行中，运行位置为本机。
+   junction 与真 symlink 的差异（源码核实）：`Linked` 标记不生效（registry.go 检查 ModeSymlink）、
+   `plugin install` 不会拒绝覆盖此链接——**Task 5 安装测试前先 `cmd /c rmdir` 删除 junction**。
+   开启 Windows 开发者模式后可删除 junction 重跑 `mayoi plugin dev` 获得真 symlink。
+
+   然后在 Mayoi 中打开一个 `.java` 文件 → **Plugins → Show Language Servers**：
+   期望看到 `java.server`，状态为运行中，运行位置为本机。
 
 - [ ] **Step 5: Commit**
 
@@ -807,6 +812,8 @@ git push -u origin main
 ```
 
 - [ ] **Step 2: 全流程安装验证（模拟真实用户）**
+
+> ⚠️ 前置：若存在 Task 2 遗留的 junction 链接 `~/.mayoi/plugins/java`，先 `cmd /c rmdir "$env:USERPROFILE\.mayoi\plugins\java"` 删除（只删链接本体，不动仓库）——否则 install 会复用链接而非真正从 Git 安装。
 
 ```bash
 mayoi plugin install you/mayoi-java

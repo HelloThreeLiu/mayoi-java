@@ -204,3 +204,41 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 ### Task 4 决策门（更新）
 
 路径 A 全项通过 → **Task 4（路径 B resolver）按计划跳过**，不执行。若未来 Mayoi/jdtls 演进导致路径 A 失效，或需要去除 Python 依赖，再按 PLAN Task 4 重启该任务（其设计注记已按源码事实更新完毕）。
+
+---
+
+## v0.2 一键引导验证（2026-11-21 / Mayoi 0.23.1 / Windows / jdtls 1.63.0 / 受管 Temurin JRE 25.0.5+8）
+
+背景：v0.1 依赖用户预装 jdtls + Python 3.9 + JDK 21/25。v0.2 新增 `bootstrap/`（每平台一条命令）与 `launcher/`（免 Python 启动器），目标 = 下载即用；JDK 8 存量用户不受影响（jdtls 运行在受管 JRE 25 上，ECJ 可分析 `release=8` 老项目；用户 JDK 8 仅用于运行其应用，与编辑器无关）。设计定案与幂等矩阵见 `docs/PLAN-v0.2-bootstrap.md` §1。
+
+### 启动器验证（Task 1）
+
+- Windows 全链：发布后布局（%TEMP% 下真实 jdtls 完整拷贝 + JAVA_HOME 回退链驱动）→ `SMOKE OK`；数据目录 `%APPDATA%\mayoi-java\jdtls\<净化名>` 生成；equinox 定位覆盖 glob+goto 分支（精确名不存在）
+- POSIX：`bash -n` / `dash -n` 通过；假 java 单测（受管 JRE 分支获胜、19 项参数全落位、透传逐字）
+- 质量修复（ee66b2d → 92b0f65，复审 Approved closed）：`.gitattributes` EOL 钉死（fresh clone 防两端同时损坏）、bat 全 ASCII 化（CP936 控制台假错误逐字节消除验证）、cwd 注入双保险（`where "$PATH:java"` + `NoDefaultCurrentDirectoryInExePath`，负路径 PWNED 零命中）、HOME 三级回退链修正（控制器模板笔误由实施者捕获）等
+
+### Windows 引导 E2E（Task 2）
+
+- 一条命令全链（本地等价 iex；jdtls 下载腿走 `MAYOI_JDTLS_TGZ` 本地通道——续传机制已另行实测）：
+  JRE TUNA 55.87MB @ 4.4MB/s（12s）→ `openjdk version "25.0.5"` → jdtls 本地源解压（marker `1.63.0`）→ 启动器落位（SHA-256 与仓库 `launcher/jdtls.bat` 一致）→ 用户 PATH 追加（注册表核验，21 个既有条目无损）→ 插件已装跳过
+- **行为级证据（核心）**：Mayoi 重启至 test-fixtures → 约 10 秒内 java 进程 CommandLine = `...\mayoi-java\bin\..\jre\bin\java.exe` + 全部固定参数 + `-data ...\mayoi-java\jdtls\test-fixtures`——**受管 JRE + 免 Python 启动器在真实宿主链路中被使用**；Maven 导入元数据落盘
+- 幂等重跑：四步全跳过、零网络、launcher SHA 不变
+- 质量修复（3f0d784 → 0d8e77a → fe76833）：`curl --fail`（404 四象限实测：修复前错误页 20669B 静默落盘击穿双源回退，修复后 exit 22 零落盘）、JRE 内层 `bin\java.exe` 预校验（README-only zip 负路径：throw + 旧 JRE 完好）、`-LiteralPath`（`[x]` 路径 plain Test-Path 误判 False 实证）、tar 替代 Expand-Archive（5.1 下分钟级→秒级）、LF→CRLF 归一（AST 求值顺序证明 + LF blob 端到端字节模拟：73 lone-LF → 0）；复审 Approved closed
+
+### POSIX 引导结构级验证（Task 3，Git Bash）
+
+- 全量安装：TUNA 目录页抓名（`OpenJDK25U-jre_x64_linux_hotspot_25.0.5_8.tar.gz`）→ 下载 → 解压校验交换 → marker `1.63.0` / `.jre-version` → wrapper 落位 `chmod +x` → `~/.local/bin` 副本 → `.zshrc` 追加；幂等重跑（sh + 真 dash）全跳过
+- 负路径三连：marker 缺失 → 重装；`1.62.0` → `版本变更: 1.62.0 → 1.63.0` 重装；**篡改源（截断 1MB）→ `SHA256 不匹配` exit 1 且现有安装字节未动** + 重跑恢复
+- 质量修复（05eef54 → 4703d00，复审 Approved closed）：`~/.local/bin` 副本 wrapper 化（字节拷贝因启动器 `$0` 相对解析必坏——沙箱复现；wrapper 修复 7/7 断言：空格路径/透传/exec/重装自愈）、所有权指纹守卫（用户文件不覆盖实测）、私有缓存域、架构白名单 die、`tuna_latest_name` 归拢、HOME/mkdir die、rc 精确行去重
+- 边界声明：真机 POSIX 端到端、Adoptium API 回退分支、JRE 版本变更实付重下 未验（与 C1 同口径）
+
+### 最终整体审查（6668481..f55abe4）
+
+- 设计定案全达成、四方口径一致（README ↔ plugin.json ↔ PLAN-v0.2 ↔ bootstrap 脚本：一条命令/URL/布局/体积逐字）、内嵌启动器副本与仓库文件程序化逐字一致、升级兼容无迁移面（plugin.json 仅 version 一行）、无敏感信息、10 提交线性
+- 必做修复：bootstrap.ps1 加 UTF-8 BOM（Windows PowerShell 5.1 文件执行解析失败——文档化 `iwr|iex` 入口不受影响；BOM 修复三路验证通过）
+- v0.2.1 记账：ps1 钉死 jdtls SHA256 + 缓存完整+哈希命中跳过下载捷径、体积口径复核、`install` 提示平台对齐、`tuna_latest_name` 取尾防御、REG_EXPAND_SZ kind 保持
+
+### Task 4/5
+
+- plugin.json 0.2.0 + README 一条命令安装改写（提交 `802b099`）
+- 合并 main、tag v0.2.0、`plugin install` 升级测试（0.1.0 → 0.2.0）：见本节顶部时序，结果随验收推进回填

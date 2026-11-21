@@ -18,7 +18,8 @@ $init = @{
 $bytes = [Text.Encoding]::UTF8.GetByteCount($init)
 $frame = "Content-Length: $bytes`r`n`r`n$init"
 
-$errFile = Join-Path $env:TEMP ("jdtls-smoke-err-" + $PID + ".log")
+# stderr 临时文件路径用跨平台 API 构造（POSIX 上 $env:TEMP 为 null，Join-Path 会崩）
+$errFile = Join-Path ([IO.Path]::GetTempPath()) ("jdtls-smoke-err-" + $PID + ".log")
 $psi = [System.Diagnostics.ProcessStartInfo]::new()
 $psi.RedirectStandardInput  = $true
 $psi.RedirectStandardOutput = $true
@@ -64,7 +65,7 @@ try {
         $read = 0
         while ($read -lt $len) {
             $n = $p.StandardOutput.Read($buf, $read, $len - $read)
-            if ($n -le 0) { throw "stdout EOF at $read/$len" }
+            if ($n -le 0) { throw "stdout EOF at $read/$len; stderr: $(Read-SmokeStderr)" }
             $read += $n
         }
         $response = -join $buf
@@ -72,10 +73,11 @@ try {
         if ($response -match '"capabilities"') { break }
     }
 } finally {
-    # 无论成功、失败还是异常，都清理整个进程树（cmd + python + java）
+    # 无论成功、失败还是异常，都清理整个进程树（cmd + python + java）与 stderr 临时文件
     if ($env:OS -eq "Windows_NT") { taskkill /PID $p.Id /T /F 2>$null } else { try { $p.Kill() } catch {} }
+    Remove-Item $errFile -ErrorAction SilentlyContinue
 }
 Write-Host ">> response (first 500 chars):"
 Write-Host $response.Substring(0, [Math]::Min(500, $response.Length))
-if ($response -match '"capabilities"') { Remove-Item $errFile -ErrorAction SilentlyContinue; Write-Host "SMOKE OK" -ForegroundColor Green; exit 0 }
+if ($response -match '"capabilities"') { Write-Host "SMOKE OK" -ForegroundColor Green; exit 0 }
 else { throw "SMOKE FAIL: no capabilities in response" }

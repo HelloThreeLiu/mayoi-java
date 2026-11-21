@@ -21,12 +21,15 @@
 1. **用户级 `JAVA_HOME` 已指向 JDK 25**（`D:\Development\CodeDevEnvironment\Java\jdk-25.0.5.1`，用户手动安装 Oracle JDK 25.0.5.1 LTS；机器级旧值 jdk1.8.0_202 未动，用户级覆盖仅对新进程生效）。jdtls.py 的 java 选择顺序 = `--java-executable` 参数 > `JAVA_HOME\bin\java.exe`（存在时）> PATH 上的 `java`；25.0.5.1 满足 1.63.0 的 JavaSE 25 要求，且 `java_major_version >= 24` 时官方脚本自动追加 `-Djdk.xml.maxGeneralEntitySizeLimit=0`、`-Djdk.xml.totalEntitySizeLimit=0` 两个兼容参数（与 PLAN F3 一致）。
 2. **PATH 上的 java 仍是 21.0.4**（Oracle javapath shim），与 JAVA_HOME=25 共存：不影响 jdtls（优先 JAVA_HOME），但宿主若依赖 PATH 找 java 则拿到 21——**无法运行 jdtls 1.63.0**。清单/文档需引导用户保证 JAVA_HOME ≥ 25 或在 settings 中显式指定。
 
-## 冒烟脚本勘误（相对任务原文的三处修订，均已实测）
+## 冒烟脚本勘误（相对任务原文的修订，均已实测）
 
 1. **cmd 引号修正**：`$psi.Arguments` 改为 `/s /c` + 整体外层引号对形式（见 A4）。注意：控制器下发的 `` "/s /c `"`"`"$Jdtls`" -data `"$DataDir`"`"" ``（3+2 引号）实测**不可行**——cmd /s 剥掉首尾引号后残留 `""bat"` 前缀报"不是内部或外部命令"；可行形式是 2+2：`` "/s /c `"`"$Jdtls`" -data `"$DataDir`"`"" ``。docs/PLAN.md 第 144 行已由控制器同步修正。
-2. **无 `-data` 模式**：`$DataDir` / `$DATA_DIR` 默认空串，为空时不追加 `-data` 参数（这正是 Mayoi 宿主的真实启动形态）。`lsp-smoke.sh` 用 `${DATA_DIR:+-data "$DATA_DIR"}` 等效实现——仅此构造兼容 bash 3.2；脚本整体需要 bash 4+（coproc/read -N/`{fd}` 关闭语法），macOS 自带 bash 3.2 需用 Homebrew bash（已在脚本头部注明）。
+2. **无 `-data` 模式**：`$DataDir` / `$DATA_DIR` 默认空串，为空时不追加 `-data` 参数（这正是 Mayoi 宿主的真实启动形态）。`lsp-smoke.sh` 用 `${DATA_DIR:+-data "$DATA_DIR"}` 等效实现——仅此构造兼容 bash 3.2；脚本整体需要 bash 4.1+（coproc/read -N 为 4.0、`{fd}` 关闭语法为 4.1），macOS 自带 bash 3.2 需用 Homebrew bash（已在脚本头部注明）。
 3. **逐帧读取修正**：jdt.ls 在 initialize 响应前会先推送 `language/status` 等 notification（如 `{"type":"Starting","message":"Init..."}`），原单帧读取必然误判 FAIL。改为逐帧读取、跳过 notification，直到收到含 `"capabilities"` 的响应帧。两个脚本已同步修正。
-4. **复审加固（详见附录 C1）**：bash 侧剥离 LSP header 的行尾 `\r`（bash read 只剥 `\n`，否则空行判定永不成立且 Content-Length 带尾 `\r`）；ps1 把启动到读取包进 `try/finally`（任何 throw 都会 taskkill 清理进程树）；两侧 stderr 均改为文件重定向——**M4 选择说明**：选择了实现重定向而非保留 + 注释方案，理由是重定向消除了一类真实的死锁（stderr 管道 >4KB 无人排水会阻塞子进程），Windows 侧经 cmd 层 `2>` 落文件、POSIX 侧在 coproc 内落文件，失败路径打印该文件、成功后删除，复杂度可控且两侧均实测；ps1 的 POSIX 分支不经过 shell，stderr 直通控制台（无管道阻塞风险）；sh 侧另加 `command -v` 前置检查、`>> starting:` 回显、kill 后 `wait` 收割（消除 bash "Terminated" 任务通知）、rootUri 空格转义。
+
+### 复审加固（详见附录 C1）
+
+bash 侧剥离 LSP header 的行尾 `\r`（bash read 只剥 `\n`，否则空行判定永不成立且 Content-Length 带尾 `\r`）；ps1 把启动到读取包进 `try/finally`（任何 throw 都会 taskkill 清理进程树，finally 兜底清理 stderr 临时文件）；两侧 stderr 均改为文件重定向——**M4 选择说明**：选择了实现重定向而非保留 + 注释方案，理由是重定向消除了一类真实的死锁（stderr 管道 >4KB 无人排水会阻塞子进程），Windows 侧经 cmd 层 `2>` 落文件、POSIX 侧在 coproc 内落文件，失败路径打印该文件、成功后删除，复杂度可控且两侧均实测；ps1 的 POSIX 分支不经过 shell，stderr 直通控制台（无管道阻塞风险）；sh 侧另加 `command -v` 前置检查、`>> starting:` 回显、kill 后 `wait` 收割（消除 bash "Terminated" 任务通知）、rootUri 空格转义。ps1 的 stderr 临时文件路径改用跨平台 `[IO.Path]::GetTempPath()` 构造——原写法 `Join-Path $env:TEMP …` 在脚本加载期无条件执行，macOS/Linux 无 TEMP 时（$env:TEMP 为 null）ps1 的 POSIX 分支未跑先崩。
 
 ---
 

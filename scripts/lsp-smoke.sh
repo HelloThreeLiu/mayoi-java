@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/lsp-smoke.sh — jdtls stdio 冒烟测试：发送 initialize，等待含 capabilities 的响应
 # 用法（在任意空目录下执行）: bash scripts/lsp-smoke.sh [jdtls 路径或名字] [data 目录]
-# 需要 bash >= 4.0（coproc/read -N/{fd} 关闭语法）；macOS 自带 bash 3.2，请用 Homebrew bash
+# 需要 bash >= 4.1（coproc/read -N 为 4.0、{fd} 关闭语法为 4.1）；macOS 自带 bash 3.2，请用 Homebrew bash
 # 注意：读响应为阻塞式；长时间无输出即判定失败（Ctrl+C 结束）。stderr 已重定向到临时文件，失败时打印，成功后删除。
 set -euo pipefail
 

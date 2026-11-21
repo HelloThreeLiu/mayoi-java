@@ -179,7 +179,7 @@ if not exist "%DATA_DIR%" (
   "-Dosgi.sharedConfiguration.area=%JDTLS_DIR%\%CONFIG_DIR%" ^
   -Dosgi.sharedConfiguration.area.readOnly=true ^
   -Dosgi.configuration.cascaded=true ^
-  -Xms1G ^
+  -Xms256m ^
   --add-modules=ALL-SYSTEM ^
   --add-opens java.base/java.util=ALL-UNNAMED ^
   --add-opens java.base/java.lang=ALL-UNNAMED ^
@@ -219,8 +219,8 @@ if (Test-Path $pluginDir) {
         Step "Installing/updating mayoi-java plugin"
         $env:MAYOI_CLI = "1"
         # F13: Mayoi.exe is a GUI-subsystem executable and the mayoi.cmd shim breaks the handle chain -> its stdout may be lost; success is verified by plugin directory state
-        Start-Process -FilePath $mayoiCli -ArgumentList "plugin","install","HelloThreeLiu/mayoi-java" -NoNewWindow -Wait -RedirectStandardOutput "$TmpDir\plugin-install-out.txt" -RedirectStandardError "$TmpDir\plugin-install-err.txt"
-        Get-Content "$TmpDir\plugin-install-out.txt", "$TmpDir\plugin-install-err.txt" -ErrorAction SilentlyContinue
+        # -WindowStyle Hidden prevents a console window popping for the .cmd shim; no stdout redirect (invalid with -WindowStyle, and unreliable per F13)
+        Start-Process -FilePath $mayoiCli -ArgumentList "plugin","install","HelloThreeLiu/mayoi-java" -WindowStyle Hidden -Wait
         if (Test-Path $pluginDir) {
             Write-Host "Plugin installed: $pluginDir" -ForegroundColor Green
         } else {

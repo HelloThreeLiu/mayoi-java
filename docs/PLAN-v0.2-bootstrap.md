@@ -59,7 +59,7 @@ POSIX: ~/.local/share/mayoi-java/
 ### 1.3 启动器规范（免 Python，逐项对应 jdtls.py 已核实行为）
 
 1. **java 解析优先级**：`<安装目录>\jre\bin\java(.exe)`（受管 JRE，存在即用）→ `JAVA_HOME\bin\java(.exe)` → PATH `java`。受管 JRE 优先保证 JRE 缺失回退时给出明确告警。
-2. **固定 JVM 参数**（G2，逐字）：`-Declipse.application=org.eclipse.jdt.ls.core.id1`、`-Dosgi.bundles.defaultStartLevel=4`、`-Declipse.product=org.eclipse.jdt.ls.core.product`、`-Dosgi.checkConfiguration=true`、`-Dosgi.sharedConfiguration.area=<jdtls目录>\config_win|mac|linux`、`-Dosgi.sharedConfiguration.area.readOnly=true`、`-Dosgi.configuration.cascaded=true`、`-Xms1G`、`--add-modules=ALL-SYSTEM`、`--add-opens java.base/java.util=ALL-UNNAMED`、`--add-opens java.base/java.lang=ALL-UNNAMED`、`-Djdk.xml.maxGeneralEntitySizeLimit=0`、`-Djdk.xml.totalEntitySizeLimit=0`（最后两项 jdtls.py 仅在 Java≥24 追加；`-D` 系统属性在旧 JVM 上无害，**无条件追加**以免启动器做版本解析）。
+2. **固定 JVM 参数**（G2，逐字）：`-Declipse.application=org.eclipse.jdt.ls.core.id1`、`-Dosgi.bundles.defaultStartLevel=4`、`-Declipse.product=org.eclipse.jdt.ls.core.product`、`-Dosgi.checkConfiguration=true`、`-Dosgi.sharedConfiguration.area=<jdtls目录>\config_win|mac|linux`、`-Dosgi.sharedConfiguration.area.readOnly=true`、`-Dosgi.configuration.cascaded=true`、`-Xms256m`、`--add-modules=ALL-SYSTEM`、`--add-opens java.base/java.util=ALL-UNNAMED`、`--add-opens java.base/java.lang=ALL-UNNAMED`、`-Djdk.xml.maxGeneralEntitySizeLimit=0`、`-Djdk.xml.totalEntitySizeLimit=0`（最后两项 jdtls.py 仅在 Java≥24 追加；`-D` 系统属性在旧 JVM 上无害，**无条件追加**以免启动器做版本解析）。堆提交偏离官方：jdtls.py 用 `-Xms1G`，本启动器改为 `-Xms256m`——实测私有提交 1.3GB → 约 0.5GB，堆按需自动增长。
 3. **入口 jar**：glob `plugins/org.eclipse.equinox.launcher_*.jar`（优先精确名 `org.eclipse.equinox.launcher.jar`）。
 4. **`-data` 目录**：`<平台缓存>\mayoi-java\jdtls\<净化后的 cwd 目录名>`（净化 = 替换 `\/:*?"<>|` 为 `_`）。**偏离官方 sha1 哈希**（批处理无法便捷计算字符串 sha1；同为 basename 粒度，碰撞特性与官方一致，净化后合法性更好）。平台缓存：Windows `%APPDATA%`、macOS `~/.cache`、Linux `~/.cache`（macOS 与官方 `~/Library/Caches` 不同，launcher 注明 intentional deviation：mayoi-java 命名空间隔离无冲突）。
 5. **参数透传**：`%*` / `"$@"` 追加在末尾（用户可自行 `-data` 覆盖、传 `--jvm-arg` 等）。
@@ -179,7 +179,7 @@ if not exist "%DATA_DIR%" mkdir "%DATA_DIR%" >nul 2>nul
   "-Dosgi.sharedConfiguration.area=%JDTLS_DIR%\%CONFIG_DIR%" ^
   -Dosgi.sharedConfiguration.area.readOnly=true ^
   -Dosgi.configuration.cascaded=true ^
-  -Xms1G ^
+  -Xms256m ^
   --add-modules=ALL-SYSTEM ^
   --add-opens java.base/java.util=ALL-UNNAMED ^
   --add-opens java.base/java.lang=ALL-UNNAMED ^
@@ -240,7 +240,7 @@ exec "$JAVA_EXE" \
   "-Dosgi.sharedConfiguration.area=$JDTLS_DIR/$CONFIG_DIR" \
   -Dosgi.sharedConfiguration.area.readOnly=true \
   -Dosgi.configuration.cascaded=true \
-  -Xms1G \
+  -Xms256m \
   --add-modules=ALL-SYSTEM \
   --add-opens java.base/java.util=ALL-UNNAMED \
   --add-opens java.base/java.lang=ALL-UNNAMED \

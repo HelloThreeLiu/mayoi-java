@@ -384,7 +384,7 @@ exec "$JAVA_EXE" \
   "-Dosgi.sharedConfiguration.area=$JDTLS_DIR/$CONFIG_DIR" \
   -Dosgi.sharedConfiguration.area.readOnly=true \
   -Dosgi.configuration.cascaded=true \
-  -Xms1G \
+  -Xms256m \
   --add-modules=ALL-SYSTEM \
   --add-opens java.base/java.util=ALL-UNNAMED \
   --add-opens java.base/java.lang=ALL-UNNAMED \

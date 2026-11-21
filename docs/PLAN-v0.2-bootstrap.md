@@ -457,10 +457,11 @@ iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootst
 
 ## 风险
 
-| 风险 | 缓解 |
-|---|---|
+| 风险 | 缓解 | 后续 |
+|---|---|---|
 | jdtls 官方源国内极慢 | 续传 + MAYOI_JDTLS_TGZ 本地通道 + README 提供手动下载指引 |
 | TUNA jre 文件名带版本号（升级后失效） | 主源 404 自动回退 Adoptium API latest |
 | PATH 追加对用户机器的侵入 | 仅追加不覆盖；README 明示；卸载=删目录+删 PATH 条目 |
-| 启动器与 bootstrap 内嵌副本漂移 | PLAN 附注：改启动器必须同步两处；Task 1 Step 1 与 Task 2 Step 3 有逐字一致性检查步骤 |
+| 启动器与 bootstrap 内嵌副本漂移 | PLAN 附注：改启动器必须同步两处；Task 1 Step 1 与 Task 2 Step 3 有逐字一致性检查步骤；内嵌副本内容必须保持纯 ASCII（Set-Content -Encoding ascii 会把非 ASCII 静默变 ?） |
 | POSIX 端到端未验 | 与 C1 同口径声明；Git Bash 假服务器覆盖帧逻辑 |
+| bootstrap 无版本化升级路径（marker/存在性幂等） | jdtls 1.63.0 → 1.64.0 升级需手动删 %LOCALAPPDATA%\mayoi-java\jdtls 后重跑 | v0.2.1 或 v0.3：版本化幂等 + 解压后交换（bootstrap.sh 将按此设计） |

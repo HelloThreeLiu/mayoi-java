@@ -464,4 +464,4 @@ iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootst
 | PATH 追加对用户机器的侵入 | 仅追加不覆盖；README 明示；卸载=删目录+删 PATH 条目 |
 | 启动器与 bootstrap 内嵌副本漂移 | PLAN 附注：改启动器必须同步两处；Task 1 Step 1 与 Task 2 Step 3 有逐字一致性检查步骤；内嵌副本内容必须保持纯 ASCII（Set-Content -Encoding ascii 会把非 ASCII 静默变 ?） |
 | POSIX 端到端未验 | 与 C1 同口径声明；Git Bash 假服务器覆盖帧逻辑 |
-| bootstrap 无版本化升级路径（marker/存在性幂等） | jdtls 1.63.0 → 1.64.0 升级需手动删 %LOCALAPPDATA%\mayoi-java\jdtls 后重跑 | v0.2.1 或 v0.3：版本化幂等 + 解压后交换（bootstrap.sh 将按此设计） |
+| bootstrap 无版本化升级路径（marker/存在性幂等） | jdtls 1.63.0 → 1.64.0 升级需手动删 %LOCALAPPDATA%\mayoi-java\jdtls 后重跑；JRE 侧以 java.exe 存在性为幂等键、无版本标记，Temurin bump 后同理删 %LOCALAPPDATA%\mayoi-java\jre（POSIX：~/.local/share/mayoi-java/ 对应目录） | v0.2.1 或 v0.3：版本化幂等 + 解压后交换（bootstrap.sh 将按此设计） |

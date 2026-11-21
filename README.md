@@ -15,18 +15,46 @@ Java 语法高亮由 Mayoi 内置（Chroma lexer）提供，插件无需贡献�
 
 ## 前置要求
 
-| 依赖 | 版本 | 说明 |
+| 依赖 | 要求 | 说明 |
 |---|---|---|
-| Mayoi | >= 0.19.0 | 最低版本下界待核对；已在 Mayoi 0.23.1 完成真机验收 |
-| JDK | 21+（jdtls 1.51+ 需 25+） | jdtls 1.51+ 需 JDK 25+，约 1.50.0 及更早需 21+（截至本验证时点）。jdtls 启动脚本强制校验（Java >= 24 时脚本自动追加兼容参数）。jdtls 官方启动脚本优先使用 `JAVA_HOME` 指向的 JDK——请确保它满足上述版本要求 |
-| Python | 3.9+ | 路径 A（当前版本的唯一启动方式，各平台均需；官方 `bin/jdtls` 启动脚本为 Python 脚本） |
-| jdtls | 1.9.0+（本机验证 1.63.0） | macOS: `brew install jdtls`；其他平台从 [官方 milestones](https://download.eclipse.org/jdtls/milestones/) 下载解压后将 `bin` 目录加入 PATH；或在 Mayoi 设置里把 `plugins.java.path` 指向 `bin\jdtls.bat` 的完整路径 |
+| Mayoi | >= 0.19.0 | 已在 Mayoi 0.23.1 完成真机验收 |
+| 网络 | 初次使用 | 需联网下载约 95MB（受管 JRE + jdtls） |
+
+以下依赖由引导脚本自动满足（或已存在时自动跳过）：JDK/JRE 21+（最新 jdtls 需 25+，受管 JRE 25 随引导安装）、Python 3.9+（仅当使用你自装的官方 bin/jdtls 启动器时）、jdtls 1.63.0。
 
 ## 安装
 
-```sh
-mayoi plugin install HelloThreeLiu/mayoi-java
+一条命令（自动安装受管 JRE 25 + jdtls 1.63.0、免 Python 启动器并接入 PATH，约 95MB 下载）：
+
+```powershell
+# Windows PowerShell
+iwr -useb https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootstrap/bootstrap.ps1 | iex
 ```
+
+```sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/bootstrap/bootstrap.sh | sh
+```
+
+完成后重启 Mayoi，打开任意 `.java` 文件即可使用。已手动安装 jdtls/JDK 的用户可跳过引导——检测到 PATH 上已有 jdtls 时脚本会自动跳过运行时安装（见下“手动安装（进阶）”）。
+
+## 手动安装（进阶）
+
+不想用引导脚本的用户可按下列步骤手动安装：
+
+1. 安装插件本体：
+
+   ```sh
+   mayoi plugin install HelloThreeLiu/mayoi-java
+   ```
+
+2. 安装 jdtls 与 JDK，并把 jdtls 的 `bin` 目录加入 PATH：
+   - macOS：`brew install jdtls`
+   - 其他平台：从 [官方 milestones](https://download.eclipse.org/jdtls/milestones/) 下载解压后将 `bin` 目录加入 PATH
+   - JDK 21+（最新 jdtls 需 25+；jdtls 启动脚本强制校验，Java >= 24 时自动追加兼容参数，且优先使用 `JAVA_HOME` 指向的 JDK——请确保满足版本要求）
+   - 官方 `bin/jdtls` 启动脚本为 Python 脚本，此路径需 Python 3.9+
+
+3. Windows 下若宿主无法按名解析 `jdtls`，可在 Mayoi 设置里把 `plugins.java.path` 指向 `bin\jdtls.bat` 的完整路径（见下“设置”）。
 
 ## 设置
 
@@ -40,6 +68,11 @@ mayoi plugin install HelloThreeLiu/mayoi-java
 
 也可在 settings.json 的 `languageServers` 下按服务器 id `java.server` 覆盖
 `initializationOptions` 等（见官方 `docs/SETTINGS.md`）。
+
+## 已知限制
+
+- 受管运行时占用约 350MB 磁盘（`%LOCALAPPDATA%\mayoi-java` / `~/.local/share/mayoi-java`）；删除该目录后重跑引导脚本即可重置。
+- Mayoi 0.23 的补全命令（Complete Word）默认无快捷键，建议在设置中自行绑定（如 Ctrl+Alt+Space），或经命令面板触发。
 
 ## 开发
 

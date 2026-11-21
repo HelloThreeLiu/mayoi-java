@@ -1,7 +1,7 @@
 {
   "name": "java",
   "displayName": "Java",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Go to Definition, hovers, completions and problems in Java files, with jdtls",
   "author": "HelloThreeLiu",
   "mayoi": ">=0.19.0",

@@ -113,7 +113,9 @@ fi
 retire_stale_copy() {
     dest="$HOME/.local/bin/jdtls"
     if [ -f "$dest" ] && grep -q mayoi-java "$dest" 2>/dev/null; then
-        rm -f "$dest" && echo "已退役受管 PATH 副本: $dest（外部 jdtls 生效；受管副本会遮蔽它且可能已失联，删除以恢复外部优先）"
+        rm -f "$dest" \
+            && echo "已退役受管 PATH 副本: $dest（外部 jdtls 生效；受管副本会遮蔽它且可能已失联，删除以恢复外部优先）" \
+            || warn "受管 PATH 副本删除失败: $dest（可手动删除处理；不删会遮蔽外部 jdtls 且可能已失联）" 1>&2
     fi
 }
 

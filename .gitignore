@@ -6,6 +6,11 @@ Desktop.ini
 # ---- Java ----
 *.class
 helper/out/
+
+# ---- Eclipse/JDT 项目元数据（jdtls 导入产物）----
+.classpath
+.project
+.settings/
 target/
 
 # ---- JS（mayoi plugin pack 的临时 node_modules 不入库；vendor/ 必须入库）----

@@ -251,3 +251,29 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 - **版本状态**：`cc5603d` 领先 v0.23.1 七个提交（未随 0.23.1 发布）；Mayoi 发版节奏约 1-2 天一版 + 应用自动更新 → 发布后应用内 Update 按钮即可用
 - **过渡期口径**（0.23.1 及更早版本）：更新插件 = 完全退出 Mayoi → `mayoi plugin update java` → 重开（本验收已实测成功）
 - 上游已知未修：**移除**插件时 Windows 运行中可能撞同款句柄问题（作者留待出现时再修）——本插件的卸载指引（退出 Mayoi 后操作）已覆盖
+
+---
+
+## 上游反馈 2：Git 插件更新检查闪控制台黑窗（Windows，2026-11-21，[sorrycc/Mayoi#235](https://github.com/sorrycc/Mayoi/issues/235)）
+
+用户报告：移除后重装 Git 来源的 java 插件，仍周期性闪黑窗口、"一直提示更新"。经源码比对 + GUI 子系统四组对照实验定位，**为宿主通用问题，插件侧无法规避**。
+
+### 实验（winexp，`-ldflags -H=windowsgui` 无控制台进程 + EnumWindows 每 100ms 轮询新增可见窗口，按进程归属归类）
+
+| 启动方式 | 对应 Mayoi 路径 | 结果 |
+|---|---|---|
+| 裸 `exec.Command` + `git ls-remote` | `internal/plugin/install.go` 的 `git()` | t+0.1s 出现窗口：`WindowsTerminal.exe` "Terminal"（Win11 默认终端）+ git.exe `PseudoConsoleWindow` |
+| 同上 + `SysProcAttr{HideWindow, CREATE_NO_WINDOW}` | `internal/git` → `vfs.Command` | 运行 15s 零窗口 |
+| 裸启动 jdtls.bat 链（cmd→bat→java） | ——（负向对照） | t+0.3s 同款窗口 |
+| 同上 + 同 SysProcAttr | `vfs.CommandEnvironment`（0.23.1 LSP 实际路径） | 运行 10s 零窗口（仅桌面噪音 GCUService 弹窗，已按进程归属排除） |
+
+### 结论
+
+- 黑窗源 = 宿主插件系统的**裸 git 调用**：更新检查 `checkPluginUpdates()`（启动 +30s、之后每 `pluginUpdateEvery = 1h`，`cmd/mayoi/pluginsync.go`）对每个 Git 安装插件跑 `git ls-remote`；`Install`/`Update` 的 clone/fetch 同理且窗口更长。`internal/plugin` 未走 `internal/git` 的 `vfs.Command`（`hidewindow_windows.go` 的 HideWindow + CREATE_NO_WINDOW，#18/ce553d2）。
+- LSP 链路无窗口：v0.23.1 为 ce553d2 后代（GitHub compare behind_by=0），`hidden-jdtls` 实测零窗口——**修改插件安装方式/启动器不影响黑窗**。
+- 通用性：影响所有 Git 来源插件；内置插件无 records 不受影响。插件侧规避矩阵：Git 安装→黑窗+常驻 Update 按钮；钉 tag `@v0.2.1`（lightweight）→提示消失、黑窗仍在；dev 链接（junction，不写 records）→两者消失，仅限作者机。
+- 同时实证「一直提示更新」：安装记录 commit == 远端 HEAD（`aa4fe55`，实测 `plugins.json` vs `git ls-remote`）时 Update 按钮仍常驻（`prefsplugins.go:473`，`fromGit` 一律渲染）——按钮语义是"执行更新"而非"有新版"；"有可用更新"另有 pill/通知（commit 级比对，`pluginsync.go updateWaits`）。0.23.1 点击 Update 失败（#233，cc5603d 待发版），提示故而无法消除。
+- 自查口径：黑窗出现于 Mayoi 启动 +30s 或其后整小时；打开 .java 触发 LSP 启动时无黑窗。
+- 实验材料：`winexp/`（Temp 下）四份日志；issue 草稿：`docs/ISSUE-win-console-window.md`。
+- **上游处理（当天修复关闭）**：sorrycc 以读代码方式复现（macOS 无法亲见窗口，实验证据为定性关键），修复于 [c634faa](https://github.com/sorrycc/Mayoi/commit/c634faa)（"Fixes #235"）：导出 `vfs.HideWindow`，`internal/plugin` 新增 `gitCommand()` 应用之（仍 `exec.CommandContext`，30s 更新检查超时与同步超时语义不变）；补回归测试 `TestGitOfAPluginTakesNoConsoleWindow`（Windows CI）；CHANGELOG："On Windows, plugin update checks and installs no longer flash a console window."。Update 按钮常驻的 UX 建议留作单独改动。
+- **随 v0.23.2 发布（2026-11-22），本机验证通过**：① 安装二进制 `Mayoi.exe` ProductVersion 0.23.2；② tag v0.23.2 包含 c634faa（compare behind_by=0），`install.go gitCommand()` 应用导出的 `vfs.HideWindow`、回归测试文件在位；③ 在本机（go 1.26.4 工具链）对 v0.23.2 源码实跑 `go test -run TestGitOfAPluginTakesNoConsoleWindow ./internal/plugin` → **PASS**；④ 同版 CHANGELOG 亦含 #233 修复（"Updating a plugin installed from Git no longer fails on Windows with Access is denied while Mayoi is open."），应用内 Update 于 Windows 可用。java 插件保持 Git 安装（records commit aa4fe55 == 远端 HEAD）即可，无需再以 dev 链接规避。

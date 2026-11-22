@@ -49,9 +49,15 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
   mayoi plugin update java
   ```
 
-> **注意（Windows）**：Mayoi 运行中更新会因插件目录被占用而失败（上游 issue
+> **注意（Windows）**：Mayoi **0.23.1 及更早**版本运行中更新会因插件目录被占用而失败（上游 issue
 > [sorrycc/Mayoi#233](https://github.com/sorrycc/Mayoi/issues/233)）——请先**完全退出 Mayoi**
-> 再执行更新，更新完成后重新启动。
+> 再执行更新，更新完成后重新启动。**该问题已随 Mayoi 0.23.2 修复**：0.23.2 起应用内 Update
+> 在 Windows 上直接可用（原地 git 更新，不再 rename）。
+
+> **说明**：Plugins 页的 **Update 按钮对所有 Git 来源安装的插件常驻显示**（宿主 UI 行为），
+> 它只是"执行更新"的动作，**不代表有新版本**；真正的"有可用更新"会以独立小标签与通知提示，
+> 判定依据是源仓库 HEAD 的 commit 是否前进（宿主每约 1 小时比对一次），与 `plugin.json`
+> 的版本号无关。
 
 ## 手动安装（进阶）
 
@@ -127,6 +133,24 @@ jdtls 内置的 ECJ 编译器支持 `release=8`，可正常分析老项目。
 **Windows 安装/更新报 rename Access denied？**
 先完全退出 Mayoi 再试——运行中的 Mayoi 占用插件目录（上游 issue
 [sorrycc/Mayoi#233](https://github.com/sorrycc/Mayoi/issues/233)）。
+
+**Plugins 页为什么一直显示「更新」按钮？**
+该按钮对所有 Git 来源安装的插件**常驻显示**，不代表有新版本（真正的"有可用更新"会有
+独立的小标签和通知，见上"更新"一节）。源仓库每前进一个 commit 就会触发一次提示，
+与版本号无关。Mayoi 0.23.2 起点击 Update 即可原地更新（#233 已修复）；更早版本
+请退出 Mayoi 后用 `mayoi plugin update java` 更新。
+
+**Windows 上周期性闪黑色控制台窗口？**
+与 Java/语言服务器无关（jdtls 启动链经实测无窗口）。这是 Mayoi 宿主对 Git 插件
+**更新检查**的实现问题：应用启动约 30 秒后、之后每约 1 小时，宿主对每个 Git 来源
+安装的插件执行一次 `git ls-remote`，而该 git 调用未加隐藏窗口标记（上游
+[sorrycc/Mayoi#235](https://github.com/sorrycc/Mayoi/issues/235)，
+`internal/plugin/install.go` 的 git 调用未走 `vfs.Command` 的隐藏窗口处理），
+裸启动的 git 便闪一个控制台窗口——影响**所有** Git 来源安装的插件，插件侧无法规避。
+上游已确认并修复（[sorrycc/Mayoi#235](https://github.com/sorrycc/Mayoi/issues/235)，
+[c634faa](https://github.com/sorrycc/Mayoi/commit/c634faa)），**已随 Mayoi 0.23.2 发布**
+（同版还包含 #233 的应用内更新修复）；0.23.2 起更新检查与安装不再闪控制台窗口，
+应用内 Update 在 Windows 上也可用。
 
 ## 开发
 

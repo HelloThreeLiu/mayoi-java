@@ -476,7 +476,9 @@ fi
 fi  # end -not $skip_runtime
 
 # ---- 6. 插件安装（mayoi CLI 探测；已装则跳过；用户自装 POSIX shim 无句柄链问题，不涉及 F13）----
-plugin_dir="$HOME/.mayoi/plugins/java"
+# 插件目录与宿主 UserDirs 同源：MAYOI_DATA_DIR 覆盖时安装到其中（internal/plugin/cli.go），否则 ~/.mayoi
+data_root="${MAYOI_DATA_DIR:-$HOME/.mayoi}"
+plugin_dir="$data_root/plugins/java"
 if [ -d "$plugin_dir" ]; then
     echo "mayoi-java 插件已安装（$plugin_dir），跳过"
 elif command -v mayoi >/dev/null 2>&1; then

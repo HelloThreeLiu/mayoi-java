@@ -34,22 +34,51 @@ if ($existing -and ($existing.CommandType -eq 'Application') -and ($existing.Sou
 
 if (-not $skipRuntime) {
 
-# ---- 1. Managed JRE 25 (TUNA primary + Adoptium official fallback; skipped when present) ----
-if (-not (Test-Path (Join-Path $JreDir "bin\java.exe"))) {
+# ---- 1. Managed JRE 25 (TUNA latest scraped like bootstrap.sh + pinned + Adoptium API fallback; .jre-version marker drives upgrades on re-run) ----
+$TunaJreDir    = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jre/x64/windows/"
+$JrePinnedName = "OpenJDK25U-jre_x64_windows_hotspot_25.0.5_8.zip"   # static fallback when the TUNA listing is unreachable (TUNA keeps old files listed)
+$JreApiUrl     = "https://api.adoptium.net/v3/binary/latest/25/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk"
+$jreMarker     = Join-Path $JreDir ".jre-version"
+$jreInstalled  = ""
+if (Test-Path $jreMarker) { $jreInstalled = (Get-Content $jreMarker -Raw).Trim() }
+
+# First zip filename in the TUNA directory listing (bootstrap.sh tuna_latest_name / head -n 1 parity); empty when unreachable
+function Get-LatestJreName {
+    $html = (& curl.exe -fsSL --retry 2 --retry-delay 2 "$TunaJreDir") -join "`n"
+    if ($LASTEXITCODE -ne 0) { return "" }
+    [regex]::Match($html, "OpenJDK25U-jre_x64_windows_hotspot_[0-9._]+\.zip").Value
+}
+
+$jreNeed = $true
+$jreDesired = Get-LatestJreName
+if (Test-Path (Join-Path $JreDir "bin\java.exe")) {
+    if (-not $jreDesired) {
+        Write-Host "Managed JRE already present ($(if ($jreInstalled) { $jreInstalled } else { 'version unknown' })); TUNA unreachable, keeping existing install"
+        $jreNeed = $false
+    } elseif ($jreInstalled -eq $jreDesired) {
+        Write-Host "Managed JRE already present and up to date ($jreDesired), skipping"
+        $jreNeed = $false
+    } else {
+        Write-Host "Managed JRE version change: $(if ($jreInstalled) { $jreInstalled } else { 'unknown' }) -> $jreDesired, reinstalling"
+    }
+}
+if ($jreNeed) {
     Step "Downloading Temurin JRE 25 (~56MiB)"
-    $targets = @(
-        "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jre/x64/windows/OpenJDK25U-jre_x64_windows_hotspot_25.0.5_8.zip",
-        "https://api.adoptium.net/v3/binary/latest/25/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk"
-    )
+    $targets = @()
+    if ($jreDesired) { $targets += "$TunaJreDir$jreDesired" }
+    $targets += "$TunaJreDir$JrePinnedName"
+    $targets += $JreApiUrl
+    $targets = $targets | Select-Object -Unique
     $zip = $null
+    $chosen = ""
     foreach ($u in $targets) {
         Write-Host "   Source: $u"
         $f = Join-Path $TmpDir ((Get-UrlKey $u) + ".zip")
         curl.exe --ssl-no-revoke -L -C - --fail --retry 3 --retry-delay 2 -o "$f" $u
-        if ($LASTEXITCODE -eq 0) { $zip = $f; break }
+        if ($LASTEXITCODE -eq 0) { $zip = $f; $chosen = $u; break }
         Write-Host "   Source failed (exit $LASTEXITCODE), trying the next one" -ForegroundColor Yellow
     }
-    if (-not $zip) { throw "JRE download failed from both sources. Re-run to resume; or manually download a zip, extract it to $JreDir (must contain bin\java.exe), then re-run." }
+    if (-not $zip) { throw "JRE download failed from all sources. Re-run to resume; or manually download a zip, extract it to $JreDir (must contain bin\java.exe), then re-run." }
     Step "Extracting JRE"
     $ex = Join-Path $TmpDir "jre-extract"
     if (Test-Path $ex) { Remove-Item $ex -Recurse -Force }
@@ -59,6 +88,10 @@ if (-not (Test-Path (Join-Path $JreDir "bin\java.exe"))) {
     $inner = Get-ChildItem $ex -Directory | Select-Object -First 1     # jdk-25.0.x-jre/
     if (-not $inner) { throw "JRE zip layout unexpected (no inner directory): $zip" }
     if (-not (Test-Path (Join-Path $inner.FullName "bin\java.exe"))) { throw "JRE zip layout unexpected (no bin\java.exe inside): $zip" }
+    # version marker written into the extracted tree (moves into place with the swap); TUNA sources -> zip filename,
+    # API fallback -> fixed tag (parity with bootstrap.sh; floating-latest churn between sources re-extracts once, by design)
+    if ($chosen -eq $JreApiUrl) { $jreMarkerVal = "adoptium-api-latest" } else { $jreMarkerVal = ($chosen -split "/")[-1] }
+    Set-Content (Join-Path $inner.FullName ".jre-version") $jreMarkerVal -Encoding ascii
     if (Test-Path $JreDir) { Remove-Item $JreDir -Recurse -Force }
     Move-Item (Join-Path $ex $inner.Name) $JreDir
     Remove-Item $zip, $ex -Recurse -Force -ErrorAction SilentlyContinue
@@ -66,12 +99,20 @@ if (-not (Test-Path (Join-Path $JreDir "bin\java.exe"))) {
     $javaVer = (& (Join-Path $JreDir "bin\java.exe") -version 2>&1 | Select-Object -First 1)
     $ErrorActionPreference = $eap
     Write-Host "JRE: $javaVer"
-} else { Write-Host "Managed JRE already present, skipping" }
+}
 
-# ---- 2. jdtls 1.63.0 (eclipse.org direct + resume; MAYOI_JDTLS_TGZ supports a local file / custom URL) ----
+# ---- 2. jdtls 1.63.0 (eclipse.org direct + resume; MAYOI_JDTLS_TGZ local/custom source; pinned SHA256 verified before install; marker version compare drives upgrades) ----
+$JdtlsVersion = "1.63.0"
+$JdtlsSha256  = "b1f2abe0b3cccb462cf64fb4a5587c7d09df60cf8be7748b152cbd89d018bdc4"   # same pinned artifact/hash as bootstrap.sh (mismatch -> refuse install)
+$JdtlsUrl     = "https://download.eclipse.org/jdtls/milestones/1.63.0/jdt-language-server-1.63.0-202610191322.tar.gz"
 $marker = Join-Path $JdtlsDir ".mayoi-java-installed"
-if (-not (Test-Path $marker)) {
-    Step "Downloading jdtls 1.63.0 (~49MB; eclipse.org is slow from CN, resumable)"
+$jdtlsInstalled = ""
+if (Test-Path $marker) { $jdtlsInstalled = (Get-Content $marker -Raw).Trim() }
+if ($jdtlsInstalled -eq $JdtlsVersion) {
+    Write-Host "Managed jdtls already present ($JdtlsVersion), skipping"
+} else {
+    if ($jdtlsInstalled) { Write-Host "Managed jdtls version change: $jdtlsInstalled -> $JdtlsVersion, reinstalling" }
+    Step "Downloading jdtls $JdtlsVersion (~49MB; eclipse.org is slow from CN, resumable)"
     $tgz = $null
     $src = $env:MAYOI_JDTLS_TGZ
     if ($src -and (Test-Path -LiteralPath $src -PathType Leaf)) {
@@ -80,18 +121,30 @@ if (-not (Test-Path $marker)) {
     } elseif ($src -match "^https?://") {
         Write-Host "   Custom source: $src"
         $tgz = Join-Path $TmpDir ((Get-UrlKey $src) + ".tar.gz")
-        curl.exe --ssl-no-revoke -L -C - --fail --retry 3 --retry-delay 2 -o "$tgz" $src
-        if ($LASTEXITCODE -ne 0) { throw "jdtls download failed (partial file kept at $tgz; re-run to resume)" }
+        # fixed cache name per URL -> cached file matching the pinned hash skips the download (old curl 416 resume boundary; bootstrap.sh M-3 parity)
+        if ((Test-Path $tgz) -and ((Get-FileHash -Algorithm SHA256 -LiteralPath $tgz).Hash.ToLowerInvariant() -eq $JdtlsSha256)) {
+            Write-Host "   Cached archive matches the pinned SHA256, skipping download"
+        } else {
+            curl.exe --ssl-no-revoke -L -C - --fail --retry 3 --retry-delay 2 -o "$tgz" $src
+            if ($LASTEXITCODE -ne 0) { throw "jdtls download failed (partial file kept at $tgz; re-run to resume)" }
+        }
     } elseif ($src) {
         throw "MAYOI_JDTLS_TGZ='$src' is neither an existing local file nor an http(s) URL (relative paths resolve against the current directory)"
     } else {
-        # Integrity currently relies on TLS + the official trusted source; pinned SHA256 verification is planned for v0.2.1 (the Adoptium latest fallback URL cannot be pinned)
-        $u = "https://download.eclipse.org/jdtls/milestones/1.63.0/jdt-language-server-1.63.0-202610191322.tar.gz"
-        Write-Host "   Source: $u (you can also download it manually and point MAYOI_JDTLS_TGZ at the file)"
-        $tgz = Join-Path $TmpDir ((Get-UrlKey $u) + ".tar.gz")
-        curl.exe --ssl-no-revoke -L -C - --fail --retry 3 --retry-delay 2 -o "$tgz" $u
-        if ($LASTEXITCODE -ne 0) { throw "jdtls download failed (partial file kept at $tgz; re-run to resume)" }
+        $tgz = Join-Path $TmpDir ((Get-UrlKey $JdtlsUrl) + ".tar.gz")
+        Write-Host "   Source: $JdtlsUrl (you can also download it manually and point MAYOI_JDTLS_TGZ at the file)"
+        # fixed artifact -> fixed cache name; pinned-hash shortcut skips the download when the cache is already complete
+        if ((Test-Path $tgz) -and ((Get-FileHash -Algorithm SHA256 -LiteralPath $tgz).Hash.ToLowerInvariant() -eq $JdtlsSha256)) {
+            Write-Host "   Cached archive matches the pinned SHA256, skipping download"
+        } else {
+            curl.exe --ssl-no-revoke -L -C - --fail --retry 3 --retry-delay 2 -o "$tgz" $JdtlsUrl
+            if ($LASTEXITCODE -ne 0) { throw "jdtls download failed (partial file kept at $tgz; re-run to resume)" }
+        }
     }
+    Step "Verifying jdtls SHA256 (pinned)"
+    $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $tgz).Hash.ToLowerInvariant()
+    if ($actual -ne $JdtlsSha256) { throw "jdtls SHA256 mismatch (expected $JdtlsSha256, got $actual): corrupted, or not the official $JdtlsVersion package: $tgz" }
+    Write-Host "   SHA256 verified"
     Step "Extracting jdtls"
     if (Test-Path $JdtlsDir) { Remove-Item $JdtlsDir -Recurse -Force }
     New-Item $JdtlsDir -ItemType Directory -Force | Out-Null
@@ -100,10 +153,10 @@ if (-not (Test-Path $marker)) {
         if (-not $src) { throw "jdtls extraction failed (tar.gz may be incomplete; delete $tgz and re-run)" }
         throw "jdtls extraction failed (tar.gz verification failed for local/custom source: $tgz)"
     }
-    Set-Content $marker "1.63.0" -Encoding ascii
+    Set-Content $marker "$JdtlsVersion" -Encoding ascii
     if (-not $src) { Remove-Item $tgz -Force -ErrorAction SilentlyContinue }
-    Write-Host "jdtls 1.63.0 installed"
-} else { Write-Host "Managed jdtls already present ($((Get-Content $marker))), skipping" }
+    Write-Host "jdtls $JdtlsVersion installed"
+}
 
 # ---- 3. Launcher placement (embedded copy, byte-identical to repo launcher/jdtls.bat) ----
 # Release discipline: any change to launcher/jdtls.bat must be mirrored in this embedded copy
@@ -218,20 +271,36 @@ if not exist "%DATA_DIR%" (
 $launcher = ($launcher -split "`n") -replace "`r$", "" -join "`r`n"   # normalize LF blob -> CRLF (raw.githubusercontent serves LF)
 Set-Content (Join-Path $BinDir "jdtls.bat") $launcher -Encoding ascii
 
-# ---- 4. PATH append (append-only, never overwrite) ----
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if (-not $userPath) { $userPath = "" }
-if ((($userPath -split ";") | ForEach-Object { $_.TrimEnd('\') }) -notcontains ($BinDir.TrimEnd('\'))) {
+# ---- 4. PATH append (append-only, never overwrite; raw registry read/write keeps the value kind) ----
+$envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+if (-not $envKey) { throw "cannot open HKCU\Environment for writing" }
+$rawPath = [string]$envKey.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+if ((($rawPath -split ";") | ForEach-Object { $_.TrimEnd('\') }) -notcontains ($BinDir.TrimEnd('\'))) {
     Step "Appending $BinDir to user PATH"
-    # <notes: a REG_EXPAND_SZ value is expanded by the .NET API and written back as REG_SZ; users with %var% entries lose follow-capability - re-evaluate raw registry read/write in v0.2.1>
-    [Environment]::SetEnvironmentVariable("Path", (($userPath.TrimEnd(";") + ";" + $BinDir).Trim(";")), "User")
+    # Raw registry read/write preserves the value kind: a REG_EXPAND_SZ Path keeps %var% entries expandable
+    # ([Environment]::SetEnvironmentVariable rewrites it as REG_SZ). WM_SETTINGCHANGE is then broadcast so
+    # new terminals / restarted apps pick the change up (the .NET API used to do this implicitly).
+    $kind = $null
+    try { $kind = $envKey.GetValueKind("Path") } catch { }
+    if (-not $kind) { $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString }
+    $envKey.SetValue("Path", (($rawPath.TrimEnd(";") + ";" + $BinDir).Trim(";")), $kind)
+    $envKey.Close()
+    if (-not ("Win32.NativeMethods" -as [type])) {
+        Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition '[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);'
+    }
+    $upd = [UIntPtr]::Zero
+    [void][Win32.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, "Environment", 2, 5000, [ref]$upd)
     Write-Host "User PATH updated (takes effect in new terminals / restarted apps; a running Mayoi must be restarted)"
-} else { Write-Host "User PATH already contains $BinDir, skipping" }
+} else {
+    $envKey.Close()
+    Write-Host "User PATH already contains $BinDir, skipping"
+}
 
 } # end -not $skipRuntime
 
 # ---- 5. Plugin install (three-level mayoi CLI probe; skipped when installed; success verified by directory state, not shim stdout) ----
-$pluginDir = Join-Path $env:USERPROFILE ".mayoi\plugins\java"
+$mayoiDataRoot = if ($env:MAYOI_DATA_DIR) { $env:MAYOI_DATA_DIR } else { Join-Path $env:USERPROFILE ".mayoi" }
+$pluginDir = Join-Path $mayoiDataRoot "plugins\java"
 if (Test-Path $pluginDir) {
     Write-Host "mayoi-java plugin already installed ($pluginDir), skipping"
 } else {

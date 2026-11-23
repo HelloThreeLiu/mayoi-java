@@ -8,6 +8,7 @@ on:
 jobs:
   static-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax (POSIX)
@@ -34,6 +35,8 @@ jobs:
 
   e2e-linux:
     runs-on: ubuntu-latest
+    # smoke scripts read blocking; cap the job so a hung jdtls fails fast instead of burning the 6h default
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Run bootstrap.sh (real downloads)
@@ -50,8 +53,31 @@ jobs:
           cd "$(mktemp -d)"
           bash "$GITHUB_WORKSPACE/scripts/lsp-smoke.sh" "$HOME/.local/share/mayoi-java/bin/jdtls"
 
+  e2e-macos:
+    runs-on: macos-latest
+    # aarch64 runner; bootstrap.sh has an explicit arch whitelist so this exercises the mac branch end-to-end
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bootstrap.sh (real downloads)
+        run: sh bootstrap/bootstrap.sh
+      - name: Verify managed JRE
+        run: "$HOME/.local/share/mayoi-java/jre/bin/java -version"
+      - name: Verify jdtls layout + marker
+        run: |
+          test -f "$HOME/.local/share/mayoi-java/jdtls/.mayoi-java-installed"
+          ls "$HOME/.local/share/mayoi-java/jdtls/plugins"/org.eclipse.equinox.launcher_*.jar
+      - name: Homebrew bash >= 4 (smoke script needs coproc/read -N; macOS ships 3.2)
+        run: brew install bash
+      - name: Launcher E2E smoke (real macOS end-to-end)
+        run: |
+          cd "$(mktemp -d)"
+          "$(brew --prefix)/bin/bash" "$GITHUB_WORKSPACE/scripts/lsp-smoke.sh" "$HOME/.local/share/mayoi-java/bin/jdtls"
+
   windows:
     runs-on: windows-latest
+    # real 105MB downloads + extraction + smoke; smoke reads blocking
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Parse bootstrap.ps1 (pwsh 7)

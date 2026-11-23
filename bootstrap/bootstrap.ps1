@@ -115,7 +115,7 @@ Step "Installing launcher"
 $launcher = @'
 @echo off
 rem mayoi-java python-free jdtls launcher (replicates official jdtls.py semantics, no version check)
-rem java resolution: managed JRE (%~dp0..\jre), then JAVA_HOME, then PATH; -data uses sanitized cwd basename
+rem java resolution: managed JRE (%~dp0..\jre), then JAVA_HOME, then PATH; -data uses sanitized cwd basename + full-path hash suffix
 rem NOTE: official-style --jvm-arg= / --java-executable / -data overrides are NOT parsed here; all args are passed through verbatim to java
 setlocal EnableExtensions DisableDelayedExpansion
 
@@ -135,6 +135,23 @@ if not defined JAVA_EXE (
     exit /b 1
 )
 
+rem soft version hint for external java only (managed JRE is known-good 25); warn, keep launching
+rem (java output goes through a temp file: a for /f command string starting with a quote triggers cmd's
+rem  first/last-quote stripping and breaks; direct execution + file read avoids the quoting entirely)
+if /i "%JAVA_EXE%"=="%JRE_JAVA%" goto :version_hint_done
+if not defined TEMP set "TEMP=%LOCALAPPDATA%\Temp"
+set "JAVA_MAJOR="
+set "JV_TMP=%TEMP%\mayoi-java-ver-%RANDOM%.tmp"
+call "%JAVA_EXE%" -version >"%JV_TMP%" 2>&1
+for /f "tokens=3 delims= " %%v in ('findstr /i "version" "%JV_TMP%"') do if not defined JAVA_MAJOR set "JAVA_MAJOR=%%v"
+del "%JV_TMP%" >nul 2>nul
+if not defined JAVA_MAJOR goto :version_hint_done
+set "JAVA_MAJOR=%JAVA_MAJOR:"=%"
+for /f "delims=. tokens=1" %%m in ("%JAVA_MAJOR%") do set "JAVA_MAJOR=%%m"
+echo(%JAVA_MAJOR%| findstr /r "^[0-9][0-9]*$" >nul || goto :version_hint_done
+if %JAVA_MAJOR% LSS 21 echo mayoi-java: warning: external java is major %JAVA_MAJOR%; jdtls 1.63 needs Java 21+ (managed JRE 25 recommended). Trying anyway... 1>&2
+:version_hint_done
+
 rem locate equinox launcher: exact name first, then versioned glob
 set "JDTLS_DIR=%HERE%..\jdtls"
 set "LAUNCHER="
@@ -151,7 +168,8 @@ if not defined LAUNCHER (
 rem platform shared configuration
 set "CONFIG_DIR=config_win"
 
-rem -data dir: %APPDATA%\mayoi-java\jdtls\[sanitized cwd basename]
+rem -data dir: %APPDATA%\mayoi-java\jdtls\[sanitized cwd basename]-[8-hex sha256 of full cwd]
+rem the hash suffix isolates same-named projects (official jdtls.py hashes the basename only)
 if not defined APPDATA set "APPDATA=%LOCALAPPDATA%"
 for %%p in ("%CD%") do set "CWD_NAME=%%~nxp"
 if not defined CWD_NAME set "CWD_NAME=_root_"
@@ -164,7 +182,16 @@ set "CWD_NAME=%CWD_NAME:>=_%"
 set "CWD_NAME=%CWD_NAME:|=_%"
 set "CWD_NAME=%CWD_NAME: =_%"
 set "CWD_NAME=%CWD_NAME:~0,64%"
+set "PATH_HASH="
+if not defined TEMP set "TEMP=%LOCALAPPDATA%\Temp"
+set "HASH_TMP=%TEMP%\mayoi-java-hash-%RANDOM%%RANDOM%.tmp"
+>"%HASH_TMP%" echo("%CD%"
+for /f "usebackq skip=1 delims=" %%h in (`certutil -hashfile "%HASH_TMP%" SHA256 2^>nul`) do if not defined PATH_HASH set "PATH_HASH=%%h"
+del "%HASH_TMP%" >nul 2>nul
+if defined PATH_HASH set "PATH_HASH=%PATH_HASH: =%"
+if defined PATH_HASH set "PATH_HASH=%PATH_HASH:~0,8%"
 set "DATA_DIR=%APPDATA%\mayoi-java\jdtls\%CWD_NAME%"
+if defined PATH_HASH set "DATA_DIR=%DATA_DIR%-%PATH_HASH%"
 if not exist "%DATA_DIR%" mkdir "%DATA_DIR%" >nul 2>nul
 if not exist "%DATA_DIR%" (
     echo mayoi-java: cannot create data dir "%DATA_DIR%" 1>&2

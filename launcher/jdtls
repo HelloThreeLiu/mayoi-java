@@ -1,6 +1,6 @@
 #!/bin/sh
 # mayoi-java 免 Python jdtls 启动器（复刻官方 jdtls.py 启动语义，无版本校验）
-# java 解析：受管 JRE（../jre）> JAVA_HOME > PATH；-data 用净化 cwd 目录名
+# java 解析：受管 JRE（../jre）> JAVA_HOME > PATH；-data 用净化 cwd 目录名 + 完整路径哈希后缀
 # NOTE: official-style --jvm-arg= / --java-executable / -data overrides are NOT parsed here; all args are passed through verbatim to java
 # NOTE: Darwin intentionally uses the same XDG-style cache root as Linux instead of ~/Library/Caches (mayoi-java namespace isolation; intentional deviation)
 set -eu
@@ -20,6 +20,17 @@ else
   exit 1
 fi
 
+# 外部 java 才做轻量版本提示（受管 JRE 已知为 25）：仅警告不阻断，主版本 < 21 时说明后果
+if [ "$JAVA_EXE" != "$HERE/../jre/bin/java" ]; then
+  jmajor=$("$JAVA_EXE" -version 2>&1 | head -n 1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p')
+  case "$jmajor" in
+    "") ;;
+    *) if [ "$jmajor" -lt 21 ]; then
+         echo "mayoi-java: warning: external java is major $jmajor; jdtls 1.63 needs Java 21+ (managed JRE 25 recommended). Trying anyway..." >&2
+       fi ;;
+  esac
+fi
+
 LAUNCHER=""
 if [ -f "$JDTLS_DIR/plugins/org.eclipse.equinox.launcher.jar" ]; then
   LAUNCHER="$JDTLS_DIR/plugins/org.eclipse.equinox.launcher.jar"
@@ -35,10 +46,18 @@ case "$(uname -s)" in
   *)      CONFIG_DIR=config_linux ;;
 esac
 
-CWD_NAME=$(basename "$(pwd)")
+CWD_PATH=$(pwd)
+CWD_NAME=$(basename "$CWD_PATH")
 CWD_NAME=$(printf '%s' "$CWD_NAME" | tr '/:*?"<>| ' '_________')
 CWD_NAME=$(printf '%s' "$CWD_NAME" | cut -c1-64)
-DATA_DIR="${XDG_CACHE_HOME:-${HOME:-${TMPDIR:-/tmp}}/.cache}/mayoi-java/jdtls/$CWD_NAME"
+# 完整路径哈希后缀：隔离同名目录的不同项目（官方 jdtls.py 只哈希目录名，有索引串扰风险）
+PATH_HASH=""
+if command -v sha256sum >/dev/null 2>&1; then
+  PATH_HASH=$(printf '%s' "$CWD_PATH" | sha256sum | cut -c1-8)
+elif command -v shasum >/dev/null 2>&1; then
+  PATH_HASH=$(printf '%s' "$CWD_PATH" | shasum -a 256 | cut -c1-8)
+fi
+DATA_DIR="${XDG_CACHE_HOME:-${HOME:-${TMPDIR:-/tmp}}/.cache}/mayoi-java/jdtls/$CWD_NAME${PATH_HASH:+-$PATH_HASH}"
 mkdir -p "$DATA_DIR"
 
 exec "$JAVA_EXE" \

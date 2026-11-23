@@ -36,8 +36,11 @@ done
 exec {JDTLS[1]}>&-
 # 杀 coproc 进程即可：POSIX 下 jdtls.py 对 java 走 execvp 原位替换（同一 PID），不存在进程树可杀，
 # 因此不等价于 Windows taskkill /T；残留风险仅限理论上嵌套更深的子进程
-kill "$JDTLS_PID" 2>/dev/null || true
-wait "$JDTLS_PID" 2>/dev/null || true   # 同步收割，避免 bash 打印 "Terminated" 任务通知
+# bash 5.3+ 在 coproc 进程被收割后会撤销 <name>_PID（set -u 下直接引用会报 unbound），
+# 故先捕获到自有变量再 kill/wait
+copid="$JDTLS_PID"
+kill "$copid" 2>/dev/null || true
+wait "$copid" 2>/dev/null || true   # 同步收割，避免 bash 打印 "Terminated" 任务通知
 
 echo ">> response (first 500 chars):"
 printf '%s\n' "${body:0:500}"

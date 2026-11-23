@@ -16,6 +16,11 @@
 # bootstrap.ps1 用 per-user %TEMP% 的做法对称）。
 # PATH 副本（~/.local/bin/jdtls）是 wrapper（绝对路径转发 exec 正本），不是字节拷贝 ——
 # 正本按 $0 相对路径解析 ../jre 与 ../jdtls，字节拷贝会解析错位。
+# LC_ALL=C：macOS /bin/sh = bash 3.2.57（POSIX 模式）在 UTF-8 locale + set -u 下，
+# $var 紧跟 CJK/全角字符会被误并入变量名 → 误报 "unbound variable"（2026-11-23 macos-26
+# runner 实测，T1-T8 归因矩阵见 VERIFICATION）。C locale 按字节扫描即规避；中文消息
+# 经 printf/echo 原样字节输出，不受影响；子进程（curl/tar/哈希工具）均与 locale 无关。
+export LC_ALL=C
 set -eu
 
 step() { printf '== %s\n' "$1"; }

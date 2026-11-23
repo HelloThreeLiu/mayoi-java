@@ -25,7 +25,7 @@
         "languages": ["java"],
         "command": "${settings.path}",
         "args": ["${settings.jvmArgs}"],
-        "install": "brew install jdtls"
+        "install": "https://github.com/HelloThreeLiu/mayoi-java#安装"
       }
     ]
   }

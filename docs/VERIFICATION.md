@@ -327,9 +327,30 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 - PATH 注册表原始写入分支（kind 保持 + `WM_SETTINGCHANGE` 广播）未实付触发：本机用户 Path 已含 BinDir（追加分支跳过）且现有 kind 为 REG_SZ；实现为标准模式（`DoNotExpandEnvironmentNames` 读 + 按原 kind `SetValue` + `SendMessageTimeout` 广播），待有 `%var%` 条目环境再实证
 - 清理：WSL 侧测试安装（`~/.local/share/mayoi-java`、`~/.cache/mayoi-java`）与临时文件已删除；Windows 侧为真实安装的就地升级，保留
 
+### e2e-macos 首跑三连修（2026-11-23，macos-26-arm64 runner，最终全绿于 [run 45105899756](https://github.com/HelloThreeLiu/mayoi-java/actions/runs/45105899756)）
+
+新增的 macOS job 首跑连续暴露三个**所有本地验证（Linux dash/bash、Git Bash、Windows PowerShell）都无法覆盖**的真问题，逐个真机归因修复：
+
+**① bash 3.2 POSIX 模式多字节误扫描（`b0c8fa8`）**
+- 现象：`line 152: plat_arch: unbound variable`，而 `plat_os` 正常；`${plat_arch+YES}` 前一行还返回 `YES`
+- 归因（临时 debug workflow，真机 T1–T8 矩阵）：macOS `/bin/sh` = bash 3.2.57 POSIX 模式 + UTF-8 locale + `set -u` 时，**`$var` 紧跟 CJK/全角字符**（无分隔符）被误并入变量名；多字节在变量**前**或隔一个 ASCII 空格均正常；`${var+YES}` 仍正确报 SET；`LC_ALL=C` 后全部通过（含逐字复刻的 152 行原文）
+- 修复：bootstrap.sh 顶部 `export LC_ALL=C`（字节级扫描；中文消息经 printf/echo 字节输出不受影响；子进程 curl/tar/哈希工具与 locale 无关）。波及面仅 bootstrap.sh 12 处中文消息；launcher 唯一候选有空格分隔；ps1 ASCII-only
+- 方法教训：本机 pwsh→bash 调用链会剥内联命令引号与 `$`（首轮 WSL 隔离失效根因）；BSD `cat` 无 `-A`（round-3 秒挂）；真机问题用 `sh -x` + 行号插桩（DBGENTER/DBGBEFORESTEP）定位最快
+
+**② Temurin mac tar.gz 为 bundle 布局（`8e312f5`）**
+- 现象：下载解压成功但 `JRE tar.gz 结构异常（无含 bin/java 的内层目录）`
+- 根因：macOS 发行包为 `<顶层>/Contents/Home/bin/java`（Apple bundle 惯例），校验循环只认 `<顶层>/bin/java`
+- 修复：检测到 `Contents/Home/bin/java` 时将其提升为安装根 → 落位后仍是 `$JRE_DIR/bin/java`，与 Windows/Linux 布局一致，**launcher 受管 JRE 解析零平台分支**；同轮日志确认 TUNA 从 US 可达且 56MB/38s 下载健康
+
+**③ bash 5.3 coproc PID 生命周期（`38cc67d`）**
+- 现象：LSP 响应帧已成功读取（冒烟实质通过），死在清理段 `line 40: JDTLS_PID: unbound variable`
+- 根因：bash 5.3 在 coproc 进程被收割后撤销 `<name>_PID`，`kill` 后下一行 `wait "$JDTLS_PID"` 撞 `set -u`（runner 为 brew bash 5.3.20）
+- 修复：清理前 `copid="$JDTLS_PID"` 捕获到自有变量再 kill/wait；bash 4.1–5.2 行为不变
+
+最终状态：四 job 全绿（static-linux / e2e-linux / e2e-macos / windows）；macOS 全链 = 真机 bootstrap（TUNA 抓名 → JRE 安装 → jdtls SHA256 校验安装 → launcher/PATH）→ brew bash 5.3 跑 lsp-smoke → LSP initialize 响应含 capabilities。
+
 ### 遗留
 
-- macOS 真机验证：由新增 CI `e2e-macos` job 覆盖（本机无 mac 设备）
 - Adoptium API 回退分支（两侧）仍未实付验证（TUNA 持续可用）——口径同 v0.2
 - `tuna_latest_name` 取尾防御（见观察；待 TUNA 实际列出多版本再定排序语义）
 - 索引（mayoi-editor/plugins index.json）提交流程：PLAN Task 5，按用户指示留待最后执行

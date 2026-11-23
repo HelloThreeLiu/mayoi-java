@@ -22,6 +22,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - README 卸载章节补上打开过的项目的 jdtls 工作区数据目录（`%APPDATA%\mayoi-java\jdtls` / `~/.cache/mayoi-java/jdtls`，长期使用可能比运行时还大）；FAQ 补排障入口：jdtls 日志位于 `<数据目录>/<项目>/.metadata/.log`
+- macOS 真机三连修（新增 CI e2e-macos 首跑暴露，均经 runner 真机归因）：`bootstrap.sh` 顶部钉 `LC_ALL=C`（macOS `/bin/sh` = bash 3.2.57 POSIX 模式 + UTF-8 locale + `set -u` 下 `$var` 紧跟 CJK 字符误报 unbound，T1–T8 矩阵实证）；JRE 解压校验识别 Temurin mac 包的 `Contents/Home` bundle 布局并提升为安装根（落位仍为 `$JRE_DIR/bin/java`，与 Windows/Linux 一致）；`lsp-smoke.sh` 清理前捕获 coproc PID（bash 5.3 收割后撤销 `<name>_PID`，set -u 下误报 unbound）
 
 ## [0.2.1] - 2026-11-21
 

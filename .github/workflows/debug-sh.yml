@@ -9,25 +9,27 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: file bytes sanity
+      - name: traceC - /bin/sh (posix mode) instrumented ensure_jre
         run: |
-          file bootstrap/bootstrap.sh
-          sed -n '43,52p' bootstrap/bootstrap.sh | cat -ev
-          grep -n "^ensure_jre$" bootstrap/bootstrap.sh
-      - name: traceA - matrix only (exit after line 52)
+          awk '{ print }
+            NR == 123 { print "echo DBGENTER plat_arch-set=${plat_arch+YES}" }
+            NR == 151 { print "echo DBGBEFORESTEP plat_arch-set=${plat_arch+YES}" }
+            NR == 153 { print "exit 0" }' bootstrap/bootstrap.sh > /tmp/headC.sh
+          sh -x /tmp/headC.sh 2>&1 | head -70 || true
+      - name: traceD - /bin/bash (non-posix) same file
         run: |
-          awk 'NR == 53 { print "exit 0" } { print }' bootstrap/bootstrap.sh > /tmp/headA.sh
-          sh -x /tmp/headA.sh 2>&1 | head -50 || true
-      - name: traceB - everything up to the ensure_jre call
+          /bin/bash -x /tmp/headC.sh 2>&1 | grep -E "DBGENTER|DBGBEFORESTEP|plat_arch|unbound" | head -10 || true
+      - name: minimal local-interaction repro
         run: |
-          awk '/^ensure_jre$/ && !done { print "exit 0"; done = 1 } { print }' bootstrap/bootstrap.sh > /tmp/headB.sh
-          sh -x /tmp/headB.sh 2>&1 | head -80 || true
-      - name: full script with -x, killed after 25s (before big downloads finish)
-        run: |
-          sh -x bootstrap/bootstrap.sh > /tmp/full.log 2>&1 & pid=$!
-          sleep 25
-          kill $pid 2>/dev/null || true
-          sleep 1
-          sed -n '1,60p' /tmp/full.log
-          echo "---- tail ----"
-          tail -20 /tmp/full.log
+          /bin/sh -c 'set -eu
+            plat_arch=aarch64
+            f() {
+              local need=true marker_val="" inner="" d
+              local jre_marker="/tmp/x"
+              local jre_desired=""
+              echo "in-f plat_arch-set=${plat_arch+YES}"
+              g
+            }
+            g() { echo "in-g plat_arch-set=${plat_arch+YES}"; }
+            f
+          ' 2>&1 || true

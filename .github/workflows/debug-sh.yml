@@ -9,27 +9,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: traceC - /bin/sh (posix mode) instrumented ensure_jre
+      - name: locale + trigger matrix
         run: |
-          awk '{ print }
-            NR == 123 { print "echo DBGENTER plat_arch-set=${plat_arch+YES}" }
-            NR == 151 { print "echo DBGBEFORESTEP plat_arch-set=${plat_arch+YES}" }
-            NR == 153 { print "exit 0" }' bootstrap/bootstrap.sh > /tmp/headC.sh
-          sh -x /tmp/headC.sh 2>&1 | head -70 || true
-      - name: traceD - /bin/bash (non-posix) same file
-        run: |
-          /bin/bash -x /tmp/headC.sh 2>&1 | grep -E "DBGENTER|DBGBEFORESTEP|plat_arch|unbound" | head -10 || true
-      - name: minimal local-interaction repro
-        run: |
-          /bin/sh -c 'set -eu
-            plat_arch=aarch64
-            f() {
-              local need=true marker_val="" inner="" d
-              local jre_marker="/tmp/x"
-              local jre_desired=""
-              echo "in-f plat_arch-set=${plat_arch+YES}"
-              g
-            }
-            g() { echo "in-g plat_arch-set=${plat_arch+YES}"; }
-            f
-          ' 2>&1 || true
+          echo "== locale env =="; env | grep -iE "^(LANG|LC_)" || echo "(none set)"
+          locale 2>/dev/null | head -3
+          echo "T1 ascii plain:";      /bin/sh -c 'set -eu; v=a; echo "($v)"' && echo "  -> OK"
+          echo "T2 mb-after:";         /bin/sh -c 'set -eu; v=a; echo "($v，约)"' && echo "  -> OK" || echo "  -> FAIL"
+          echo "T3 mb-before:";        /bin/sh -c 'set -eu; v=a; echo "下载 ($v)"' && echo "  -> OK" || echo "  -> FAIL"
+          echo "T4 fn mb-after:";      /bin/sh -c 'set -eu; v=a; p(){ printf "== %s\n" "$1"; }; p "($v，约)"' && echo "  -> OK" || echo "  -> FAIL"
+          echo "T5 mb-after LC_ALL=C:"; LC_ALL=C /bin/sh -c 'set -eu; v=a; echo "($v，约)"' && echo "  -> OK" || echo "  -> FAIL"
+          echo "T6 real line 152 LC_ALL=C:"; LC_ALL=C /bin/sh -c 'set -eu; plat_os=mac; plat_arch=aarch64; step(){ printf "== %s\n" "$1"; }; step "下载 Temurin JRE 25 ($plat_os/$plat_arch，约 56MiB)"' && echo "  -> OK" || echo "  -> FAIL"
+          echo "T7 real line 152 default locale:"; /bin/sh -c 'set -eu; plat_os=mac; plat_arch=aarch64; step(){ printf "== %s\n" "$1"; }; step "下载 Temurin JRE 25 ($plat_os/$plat_arch，约 56MiB)"' && echo "  -> OK" || echo "  -> FAIL"
+          echo "T8 launcher-style msg:"; /bin/sh -c 'set -eu; JDTLS_DIR=/x/y; echo "mayoi-java: 在 $JDTLS_DIR 下未找到 equinox launcher。"' && echo "  -> OK" || echo "  -> FAIL"

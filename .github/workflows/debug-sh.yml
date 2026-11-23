@@ -9,34 +9,25 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: probe shell + uname + case
+      - name: file bytes sanity
         run: |
-          /bin/sh -c '
-            echo "BASH_VERSION=${BASH_VERSION:-none}"
-            echo "uname -s: $(uname -s)"
-            echo "uname -m: $(uname -m)"
-            set -eu
-            case "$(uname -s)" in
-                Darwin) plat_os="mac" ;;
-                *)      plat_os="linux" ;;
-            esac
-            case "$(uname -m)" in
-                x86_64|amd64)      plat_arch="x64" ;;
-                aarch64|arm64)     plat_arch="aarch64" ;;
-                *) echo "ARCH CASE FELL THROUGH, uname -m=[$(uname -m)]" ;;
-            esac
-            echo "plat_os=[${plat_os:-UNSET}] plat_arch=[${plat_arch:-UNSET}]"
-          '
-      - name: trace platform matrix of the real script (no downloads)
+          file bootstrap/bootstrap.sh
+          sed -n '43,52p' bootstrap/bootstrap.sh | cat -A
+          grep -n "^ensure_jre$" bootstrap/bootstrap.sh
+      - name: traceA - matrix only (exit after line 52)
         run: |
-          awk 'NR == 54 { print "exit 0" } { print }' bootstrap/bootstrap.sh > /tmp/head.sh
-          wc -l bootstrap/bootstrap.sh /tmp/head.sh
-          sh /tmp/head.sh 2>&1 | head -60 || true
-      - name: trace the failing region verbatim
+          awk 'NR == 53 { print "exit 0" } { print }' bootstrap/bootstrap.sh > /tmp/headA.sh
+          sh -x /tmp/headA.sh 2>&1 | head -50 || true
+      - name: traceB - everything up to the ensure_jre call
         run: |
-          /bin/sh -c 'set -eu
-            plat_os="mac"
-            jre_desired="OpenJDK25U-jre_x64_windows_hotspot_25.0.5.1_2.zip"
-            step() { printf "== %s\n" "$1"; }
-            step "下载 Temurin JRE 25 ($plat_os/$plat_arch，约 56MiB)"
-          ' 2>&1 || true
+          awk '/^ensure_jre$/ && !done { print "exit 0"; done = 1 } { print }' bootstrap/bootstrap.sh > /tmp/headB.sh
+          sh -x /tmp/headB.sh 2>&1 | head -80 || true
+      - name: full script with -x, killed after 25s (before big downloads finish)
+        run: |
+          sh -x bootstrap/bootstrap.sh > /tmp/full.log 2>&1 & pid=$!
+          sleep 25
+          kill $pid 2>/dev/null || true
+          sleep 1
+          sed -n '1,60p' /tmp/full.log
+          echo "---- tail ----"
+          tail -20 /tmp/full.log

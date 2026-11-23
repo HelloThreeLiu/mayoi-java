@@ -191,6 +191,13 @@ ensure_jre() {
             inner="${d%/}"
             break
         fi
+        # macOS bundle 布局（Temurin mac tar.gz 为 <顶层>/Contents/Home/bin/java）：
+        # 将 Contents/Home 提升为安装根，落位后即 $JRE_DIR/bin/java，与 Windows/Linux 一致，
+        # 启动器的受管 JRE 解析无需平台分支
+        if [ -f "${d}Contents/Home/bin/java" ]; then
+            inner="${d%/}/Contents/Home"
+            break
+        fi
     done
     if [ -z "$inner" ]; then
         rm -rf "$EXTRACT_DIR"

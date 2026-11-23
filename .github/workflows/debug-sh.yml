@@ -12,7 +12,7 @@ jobs:
       - name: file bytes sanity
         run: |
           file bootstrap/bootstrap.sh
-          sed -n '43,52p' bootstrap/bootstrap.sh | cat -A
+          sed -n '43,52p' bootstrap/bootstrap.sh | cat -ev
           grep -n "^ensure_jre$" bootstrap/bootstrap.sh
       - name: traceA - matrix only (exit after line 52)
         run: |

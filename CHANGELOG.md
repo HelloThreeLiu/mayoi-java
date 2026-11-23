@@ -9,6 +9,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - README 常见问题补两条：Plugins 页 Update 按钮的常驻语义（Git 插件一律显示，≠ 有新版本）；Windows 上周期性闪控制台黑窗的根因（宿主 Git 插件更新检查未隐藏窗口，上游问题）与用户应对
 - `docs/ISSUE-win-console-window.md`：上游 issue（[sorrycc/Mayoi#235](https://github.com/sorrycc/Mayoi/issues/235)，当天修复于 c634faa，已随 v0.23.2 发布并本机验证：回归测试 PASS）及其 GUI 子系统四组对照实验：裸 git 启动必现黑窗、vfs.Command/jdtls 链路零窗口
 - `docs/VERIFICATION.md` 补"上游反馈 2"实验记录（黑窗来源实证、安装方式规避矩阵、Update 按钮语义实证）
+- Windows 引导脚本补齐 POSIX 侧已有的升级路径：受管 JRE 写 `.jre-version` marker 并与 TUNA 目录最新文件名比较（重跑自动升级到最新 25.x；TUNA 不可达时保留现有安装）；受管 jdtls marker 增加版本比较（版本变更时重装，此前仅存在性检查）
+- `bootstrap.ps1` 为 jdtls 包加钉死 SHA256 校验（与 `bootstrap.sh` 同一固定产物/哈希；本地/自定义源同样校验，不匹配拒绝安装），缓存命中哈希时跳过下载（消除老 curl `-C -` 对完整文件的 416 续传边界，`bootstrap.sh` M-3 同款捷径）
+- 启动器 `-data` 目录名追加完整路径 SHA256 前 8 位后缀：同名目录的不同项目不再共用工作区数据（官方 `jdtls.py` 只哈希目录名的已知串扰风险，PLAN F4；**迁移说明：更新后首次打开每个项目会触发一次重新导入**，旧目录可在清理时删除）
+- 启动器对外部 java 做轻量版本提示（仅警告不阻断）：主版本 < 21 时打印可读警告（受管 JRE 分支不触发，不改变"无版本校验"的启动语义）
+- CI：各 job 加 `timeout-minutes`（smoke 为阻塞式读，防挂起烧满默认 6 小时）；新增 `e2e-macos` job（macos-latest 真机 bootstrap + LSP 冒烟；brew bash ≥4 跑 smoke 脚本）
+
+### Changed
+- `bootstrap.ps1` 的用户 PATH 写入改为原始注册表读写：`REG_EXPAND_SZ` 类型不再被降级为 `REG_SZ`（含 `%var%` 条目的用户 PATH 保持可展开），写后广播 `WM_SETTINGCHANGE`
+- 两侧引导脚本的插件安装检测遵循 `MAYOI_DATA_DIR`（此前硬编码 `~/.mayoi/plugins/java`，自定义数据目录的用户会每次重复安装）
+- `plugin.json` 语言服务器缺失时的 `install` 提示由 `brew install jdtls` 改为指向仓库安装文档（宿主将其作为纯展示文本嵌入 LspMissing 消息，`brew` 提示对 Windows 用户误导）
+
+### Fixed
+- README 卸载章节补上打开过的项目的 jdtls 工作区数据目录（`%APPDATA%\mayoi-java\jdtls` / `~/.cache/mayoi-java/jdtls`，长期使用可能比运行时还大）；FAQ 补排障入口：jdtls 日志位于 `<数据目录>/<项目>/.metadata/.log`
 
 ## [0.2.1] - 2026-11-21
 

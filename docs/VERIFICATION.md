@@ -277,3 +277,59 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 - 实验材料：`winexp/`（Temp 下）四份日志；issue 草稿：`docs/ISSUE-win-console-window.md`。
 - **上游处理（当天修复关闭）**：sorrycc 以读代码方式复现（macOS 无法亲见窗口，实验证据为定性关键），修复于 [c634faa](https://github.com/sorrycc/Mayoi/commit/c634faa)（"Fixes #235"）：导出 `vfs.HideWindow`，`internal/plugin` 新增 `gitCommand()` 应用之（仍 `exec.CommandContext`，30s 更新检查超时与同步超时语义不变）；补回归测试 `TestGitOfAPluginTakesNoConsoleWindow`（Windows CI）；CHANGELOG："On Windows, plugin update checks and installs no longer flash a console window."。Update 按钮常驻的 UX 建议留作单独改动。
 - **随 v0.23.2 发布（2026-11-22），本机验证通过**：① 安装二进制 `Mayoi.exe` ProductVersion 0.23.2；② tag v0.23.2 包含 c634faa（compare behind_by=0），`install.go gitCommand()` 应用导出的 `vfs.HideWindow`、回归测试文件在位；③ 在本机（go 1.26.4 工具链）对 v0.23.2 源码实跑 `go test -run TestGitOfAPluginTakesNoConsoleWindow ./internal/plugin` → **PASS**；④ 同版 CHANGELOG 亦含 #233 修复（"Updating a plugin installed from Git no longer fails on Windows with Access is denied while Mayoi is open."），应用内 Update 于 Windows 可用。java 插件保持 Git 安装（records commit aa4fe55 == 远端 HEAD）即可，无需再以 dev 链接规避。
+
+---
+
+## v0.2.2 优化轮验证（2026-11-23 / Windows 11 x64（PowerShell 5.1 + pwsh 7）+ WSL2 Ubuntu 24.04 x64 / jdtls 1.63.0 / Temurin JRE 25.0.5.1）
+
+背景：兑现 v0.2 最终审查的"v0.2.1 记账"遗留（ps1 钉死 jdtls SHA256、缓存哈希命中跳过下载捷径、install 提示平台对齐、REG_EXPAND_SZ kind 保持）+ 升级路径（两侧 JRE/jdtls marker 版本比较）、F4 同名目录 `-data` 隔离、外部 java 版本提示、CI 超时与 macOS e2e 等，明细见 CHANGELOG `[Unreleased]`。
+
+### 静态检查（终态全绿）
+
+- launcher 同步：两对内嵌副本逐行一致（ps1 ↔ jdtls.bat 101 行；sh ↔ jdtls 78 行）
+- `bootstrap.ps1`：`Parser::ParseFile` 0 错误；ASCII-only 0 非字节
+- `sh -n`（WSL dash）/ `bash -n`：bootstrap.sh 与 launcher/jdtls 双通过；bashism grep 零命中
+- `plugin.json` jq 合法；`ci.yml` PyYAML 解析通过
+
+### 逻辑单测
+
+| 项 | 用例 | 结果 |
+|---|---|---|
+| .bat `-data` 哈希段 | 同名两级目录（`…\proj one` 与 `…\proj one\proj one`） | 后缀 `ad186b02` / `029bdf89` 互异，与 PowerShell `Get-FileHash`（`echo("<path>"` + CRLF 字节）独立复算一致；certutil 解析（`skip=1` + 去空格 + 截 8）稳定 |
+| .bat 版本提示 | stub java 输出 17 / 25 / 乱码 / `JAVA_TOOL_OPTIONS` 干扰行 | 17→警告；25→静默；乱码→数值守卫（`findstr ^[0-9]*$`）安全跳过；干扰行→正确取 `openjdk version "17.0.2"` 行 |
+| POSIX sed 解析 | 同前三类（dash 实跑） | `17` / `25` / 空 ✓ |
+| POSIX 哈希后缀 | `/tmp` 同名两级目录 | `f349c64b` / `e55cd391` 互异，`sha256sum` 独立复算一致 |
+
+**实现期发现并修复**：`for /f … in ('"%JAVA_EXE%" -version …')` 以引号开头的命令串触发 cmd 的首尾引号剥离规则 → 报"文件名、目录名或卷标语法不正确"。修复为 `call` 直执行 + `>"%JV_TMP%" 2>&1` 落临时文件、`for /f` 读文件（`findstr` 在命令串开头，无引号问题）；四用例回归通过后回写 launcher 与 bootstrap.ps1 内嵌副本。
+
+### Windows 真机（PowerShell 5.1 实跑 bootstrap.ps1，共四轮）
+
+1. 首跑（旧装无 `.jre-version` marker）：TUNA 抓名 → `版本变更: unknown -> …25.0.5_8.zip` → 下载 55.87MB → 解压校验 → marker 落位 → `JRE: openjdk version "25.0.5" 2026-10-20 LTS`；jdtls marker 比较 `1.63.0` 命中跳过
+2. 二跑：`already present and up to date (…25.0.5_8.zip), skipping`——全幂等、零下载
+3. JRE 升级实付（三跑，TUNA 路线已切换最新）：`版本变更: …25.0.5_8.zip -> …25.0.5.1_2.zip` → 重装 → `JRE: openjdk version "25.0.5.1" 2026-11-17 LTS`——**marker 升级路径端到端实付**
+4. jdtls SHA 负路径：摘 marker + `MAYOI_JDTLS_TGZ` 指向无关文件 → `SHA256 mismatch (expected …d018bdc4, got d8945996…)` exit 1，**现有 jdtls 目录字节未动**（校验先于删除）
+5. jdtls SHA 好路径：官方包（51,143,565 B，与 PLAN 记载一致）独立复算哈希 == 钉死值 → 本地源 → `SHA256 verified` → 重装 → marker 回写 `1.63.0`
+6. M-3 捷径：默认源缓存名（URL-key `9e944aead06a080b`）预置完整包 + 摘 marker → `Cached archive matches the pinned SHA256, skipping download`（老 curl `-C -` 416 边界消除）→ 校验 → 重装
+7. LSP 冒烟 e2e（lsp-smoke.ps1，pwsh）：`SMOKE OK`，capabilities 全量；data 目录 `ci-smoke-ws-check-8f9d5e92`，`8f9d5e92` 与独立复算闭环一致；bootstrap 落位的 `bin\jdtls.bat` 与仓库文件行数/内容一致（含新逻辑）
+
+### POSIX 真机（WSL2 Ubuntu 24.04 x64；/bin/sh = dash，bash 5.2；默认安装位 `~/.local/share/mayoi-java`）
+
+- bootstrap.sh 全流程：首跑 JRE TUNA 抓名（`…25.0.5.1_2.tar.gz`）→ 解压校验交换 + marker（jdtls 下载中被打断）；二跑 `受管 JRE 已存在且版本匹配，跳过` → jdtls 下载 → `SHA256 校验（钉死值）通过` → 解压校验 → 交换 → `1.63.0 安装完成` → 启动器落位
+- rc 追加负路径：目标 rc 目录不存在 → 写入失败 warn + 完成语降级，未触碰任何真实 rc；wrapper 落位随 PATH 未接入 warn（全程无 crash）
+- LSP 冒烟 e2e（lsp-smoke.sh，bash 5.2）：`SMOKE OK`；data 目录 `smoke-ws-posix-a06bbb08`，`a06bbb08` = sha256(`/tmp/smoke-ws-posix`) 前 8 位闭环一致
+- mayoi CLI 缺失 → 插件安装提示分支 ✓
+
+### 观察与备注
+
+- **TUNA 不同存储节点列表内容可能不同**（本机 curl 路线曾返回 25.0.5_8，服务端抓取路线同时段为 25.0.5.1_2，两日后本机路线亦切换）：marker 比较的最坏代价 = 一次有效 JRE 的重复安装（与 sh 侧既有口径相同）；`tuna_latest_name` / `Get-LatestJreName` 首匹配的"取尾防御"仍留待（当前每目录仅一个 zip，排序歧义未实际发生）
+- **pwsh 7 实测 `Set-Location` 会传播到子进程 Win32 cwd**（.bat 的 `%CD%` = Set-Location 目标，由 data 目录名实证）——PLAN Task 1 Step 5 的"pwsh 不传播"注记适用于 Windows PowerShell 5.1 语境
+- **本机 pwsh→bash 调用链会剥落内联命令的引号与 `$`**（本次 POSIX 隔离环境变量失效的根因，遂退化为默认安装位的真实用户场景）：WSL 本地测试应将脚本落盘执行，勿用长内联 `-c` 串
+- PATH 注册表原始写入分支（kind 保持 + `WM_SETTINGCHANGE` 广播）未实付触发：本机用户 Path 已含 BinDir（追加分支跳过）且现有 kind 为 REG_SZ；实现为标准模式（`DoNotExpandEnvironmentNames` 读 + 按原 kind `SetValue` + `SendMessageTimeout` 广播），待有 `%var%` 条目环境再实证
+- 清理：WSL 侧测试安装（`~/.local/share/mayoi-java`、`~/.cache/mayoi-java`）与临时文件已删除；Windows 侧为真实安装的就地升级，保留
+
+### 遗留
+
+- macOS 真机验证：由新增 CI `e2e-macos` job 覆盖（本机无 mac 设备）
+- Adoptium API 回退分支（两侧）仍未实付验证（TUNA 持续可用）——口径同 v0.2
+- `tuna_latest_name` 取尾防御（见观察；待 TUNA 实际列出多版本再定排序语义）
+- 索引（mayoi-editor/plugins index.json）提交流程：PLAN Task 5，按用户指示留待最后执行

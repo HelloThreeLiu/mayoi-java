@@ -89,7 +89,11 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
    - Windows：`%LOCALAPPDATA%\mayoi-java`
    - macOS / Linux：`~/.local/share/mayoi-java`
 
-3. 清理 PATH 接入：
+3. 删除打开过的项目的 jdtls 工作区数据（每个项目的导入索引，长期使用可能比运行时还大）：
+   - Windows：`%APPDATA%\mayoi-java\jdtls\`
+   - macOS / Linux：`${XDG_CACHE_HOME:-~/.cache}/mayoi-java/jdtls/`
+
+4. 清理 PATH 接入：
    - Windows：在系统“编辑账户的环境变量”里删除用户 PATH 中的 `...\mayoi-java\bin` 条目；
    - macOS / Linux：删除 `~/.local/bin/jdtls` wrapper（引导脚本写入的 PATH 副本）；若不再需要，
      可一并移除引导时追加到 rc 文件（`~/.zshrc` / `~/.bashrc`）的
@@ -109,7 +113,7 @@ curl -fsSL https://raw.githubusercontent.com/HelloThreeLiu/mayoi-java/main/boots
 
 ## 已知限制
 
-- 受管运行时占用约 240MB 磁盘（实测；`%LOCALAPPDATA%\mayoi-java` / `~/.local/share/mayoi-java`）；删除该目录后重跑引导脚本即可重置。
+- 受管运行时占用约 240MB 磁盘（实测；`%LOCALAPPDATA%\mayoi-java` / `~/.local/share/mayoi-java`）；删除该目录后重跑引导脚本即可重置。重跑引导脚本也会把受管 JRE 升级到 TUNA 上的最新 25.x（`.jre-version` marker 版本比较驱动）；受管 jdtls 同理按 marker 升级（随插件发布更新版本号）。
 - Mayoi 0.23 的补全命令（Complete Word）默认无快捷键，建议在设置中自行绑定（如 Ctrl+Alt+Space），或经命令面板触发。
 - JVM 内存：启动器内置参数只有 `-Xms256m`，无 `-Xmx`（JVM 默认上限 = 物理内存 1/4）。大项目用户建议设置 `plugins.java.jvmArgs = ["-Xmx1g"]` 限制堆上限（参数追加在内置项之后，后写胜出）。内存实测参考：小型项目空闲态工作集 ~270MB / 提交 ~460MB。
 - 修改 `jvmArgs` 后需重启语言服务器（如重启 Mayoi）方对新启动的进程生效：Mayoi 的设置热加载仅对 `initializationOptions` 变更自动重启服务器，`args` 变更不在其列。
@@ -122,6 +126,9 @@ Mayoi 0.23 的补全命令（Complete Word）默认无快捷键：在设置中�
 
 **首次打开项目较慢？**
 jdtls 首次导入项目需要时间（本项目实测约 25s，大项目 160s+）。导入完成后，后续打开秒开。
+
+**诊断/补全无响应，怎么排查？**
+先看 jdtls 自己的日志 `<数据目录>/<项目目录名>-<8 位哈希>/.metadata/.log`（Windows 在 `%APPDATA%\mayoi-java\jdtls\` 下、macOS / Linux 在 `~/.cache/mayoi-java/jdtls/` 下；目录名 = 净化后的项目目录名 + 完整路径哈希后缀，用于隔离同名项目）。再用 **Plugins → Show Language Servers** 看服务器状态、**Show Plugin Log** 看宿主日志。改过 `plugins.java.path` / `jvmArgs` 后需重启语言服务器（重启 Mayoi 最彻底）。
 
 **修改 `jvmArgs` 不生效？**
 需重启语言服务器——重启 Mayoi 最彻底（原因见上“已知限制”）。

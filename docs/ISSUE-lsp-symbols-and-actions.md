@@ -1,8 +1,13 @@
-# 上游建议草稿：LSP documentSymbol 与 codeAction 客户端支持
+# 上游建议：LSP documentSymbol 与 codeAction 客户端支持
 
-> 状态：**草稿，未提交**（提交需用户确认）。目标仓库：sorrycc/Mayoi。
-> 依据：v0.23.3 源码（本机 F:\VibeCodingProject\Mayoi = 106341f）。
+> 状态：**已提交 → [sorrycc/Mayoi#254](https://github.com/sorrycc/Mayoi/issues/254)**（2026-11-24，英文正文）。
+> 目标仓库：sorrycc/Mayoi。依据：v0.23.3 源码（本机 F:\VibeCodingProject\Mayoi = 106341f）
+> + jdtls 1.63.0 initialize 响应实证（Windows 本机探测：documentSymbolProvider /
+> codeActionProvider / codeLensProvider 均 PRESENT）。
 > 关联插件：HelloThreeLiu/mayoi-java（索引 PR mayoi-editor/plugins#1，待合并）。
+> 提交前复核：lsp 包全文 grep（无 codeAction/documentSymbol/codeLens）、declaration 正则原文、
+> commands.go:145-149、client.go:216-222、`go test -run TestFindReferencesPicker` PASS、
+> 上游 30 条 issue 无重复主题（#249 为本建议的前置特性）。
 
 ## 建议 1：document 的语言有 LSP 服务器时，优先用 textDocument/documentSymbol 提供符号列表
 

@@ -10,8 +10,16 @@
 由 Mayoi 宿主 LSP 客户端提供（本插件只是把 jdtls 接进来）：
 
 - ✅ 诊断（Problems）、hover、跳转到定义（F12 / ⌘-click）、补全（⌃Space）、格式化
-- ❌ 查找引用、重命名、document highlight —— 宿主客户端暂未实现这些 LSP 能力，
-  需等 Mayoi 核心支持（详见 `PLUGIN-RULES.md` 第 1、3.3 章）
+- ✅ 查找引用（Shift+F12）、转到实现（⌘/Ctrl+F12）、转到类型定义（无默认键，可自行绑定）
+  —— 需 **Mayoi ≥ 0.23.1**（上游 #211；0.23.3 源码 `commands.go` 注册 + 本机
+  `go test -run TestFindReferencesPicker` PASS）
+- ❌ 重命名、document highlight、code lens（run/debug）—— 宿主客户端暂未实现这些 LSP 能力
+  （前两者见 `PLUGIN-RULES.md` 第 1、3.3 章；code lens 需宿主请求 `textDocument/codeAction`，
+  尚未实现，已拟上游建议，见 `docs/ISSUE-lsp-symbols-and-actions.md`）
+
+宿主另有基于**文本解析**（非 LSP）的文件符号列表（面包屑点文件名 / Go → Go to Symbol，全语言通用）：
+Java 的类/接口/枚举可列出，**方法暂不显示**（宿主声明关键字正则不含 Java 方法形态；
+`textDocument/documentSymbol` 未接入，同见上游建议草稿）。
 
 Java 语法高亮由 Mayoi 内置（Chroma lexer）提供，插件无需贡献语言定义。
 

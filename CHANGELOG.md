@@ -23,6 +23,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - README 卸载章节补上打开过的项目的 jdtls 工作区数据目录（`%APPDATA%\mayoi-java\jdtls` / `~/.cache/mayoi-java/jdtls`，长期使用可能比运行时还大）；FAQ 补排障入口：jdtls 日志位于 `<数据目录>/<项目>/.metadata/.log`
 - macOS 真机三连修（新增 CI e2e-macos 首跑暴露，均经 runner 真机归因）：`bootstrap.sh` 顶部钉 `LC_ALL=C`（macOS `/bin/sh` = bash 3.2.57 POSIX 模式 + UTF-8 locale + `set -u` 下 `$var` 紧跟 CJK 字符误报 unbound，T1–T8 矩阵实证）；JRE 解压校验识别 Temurin mac 包的 `Contents/Home` bundle 布局并提升为安装根（落位仍为 `$JRE_DIR/bin/java`，与 Windows/Linux 一致）；`lsp-smoke.sh` 清理前捕获 coproc PID（bash 5.3 收割后撤销 `<name>_PID`，set -u 下误报 unbound）
+- README/PLUGIN-RULES 能力范围勘误（依 0.23.3 源码 + 本机 `go test -run TestFindReferencesPicker` PASS）：查找引用（Shift+F12）、转到实现（⌘/Ctrl+F12）、转到类型定义自 **Mayoi 0.23.1**（上游 #211）起已由宿主提供——原文档引用了 `docs/PLUGINS-DESIGN.md` 的过时声明「references 未做」；仍不提供 rename、document highlight、codeAction/documentSymbol（面包屑符号列表为文本正则，Java 类/接口/枚举可见而方法不可见——上游建议草稿见 `docs/ISSUE-lsp-symbols-and-actions.md`）
 
 ## [0.2.1] - 2026-11-21
 

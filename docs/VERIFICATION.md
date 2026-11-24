@@ -354,3 +354,23 @@ SMOKE OK        （exit 0；taskkill 在 finally 中照常执行；errFile 成�
 - Adoptium API 回退分支（两侧）仍未实付验证（TUNA 持续可用）——口径同 v0.2
 - `tuna_latest_name` 取尾防御（见观察；待 TUNA 实际列出多版本再定排序语义）
 - 索引（mayoi-editor/plugins index.json）提交流程：PLAN Task 5，按用户指示留待最后执行
+
+---
+
+## 上游能力勘误（2026-11-24 / Mayoi 0.23.3 源码，本机仓库 = 106341f）
+
+背景：Mayoi 发布 0.23.3（2026-11-23）。对比 v0.23.2…v0.23.3：与本插件相关的宿主 LSP 改动为零（`cmd/mayoi/lsp.go` 仅 1 行接收者重构），其余为插件 JS API 扩展（document ref/snapshot、setLanguage、lexerFile XML 语法、source actions、showDiff、tab action 上下文）、面包屑文件符号列表与 SCM/远端传输。借此轮复查发现：**插件的宿主能力文档自 v0.1.0 起一直是错的**。
+
+| # | 事实 | 证据 |
+|---|---|---|
+| E1 | references / implementation / typeDefinition 自 **0.23.1** 起宿主已实现（`b1f8126` "Add type, source, implementation and reference navigation (#211)"，2026-11-20） | `git tag --contains b1f8126` → v0.23.1/2/3 |
+| E2 | 命令注册：`go.references`（Shift+F12）、`go.implementation`（⌘/Ctrl+F12）、`go.typeDefinition`（无默认键） | cmd/mayoi/commands.go:145-149 |
+| E3 | 客户端 initialize 请求 references 能力并解析 ReferencesProvider | internal/lsp/client.go:107/220/265 |
+| E4 | `go test -run TestFindReferencesPicker ./cmd/mayoi` 本机 **PASS**（go 1.26.4，0.23.3 源码） | 本机实跑 6.3s ok |
+| E5 | rename / documentHighlight / codeAction / documentSymbol 均无请求或注册 | 源码 grep 无命中 |
+| E6 | 面包屑符号列表 = `internal/symbols.Find` 文本正则（非 LSP）：Java 类/接口/枚举可见（修饰符表 + class/interface/enum 关键字），**方法不可见**（void/int/record 不在关键字表） | internal/symbols/symbols.go declaration 正则 |
+| E7 | 根因：`docs/PLUGINS-DESIGN.md` 仍声明「references and rename are not done」——过时文档；插件 v0.1.0 起的 README ❌ 表引用了它 | PLUGINS-DESIGN.md:14 |
+
+处置：README 功能范围表、PLUGIN-RULES 第 1/3.3/4.4 章已按源码修订（references/implementation/typeDefinition 标注 ✅ + Mayoi ≥ 0.23.1；rename 与 document highlight 保持 ❌）。上游建议草稿（documentSymbol 消费 + codeAction 请求 × 0.23.3 source actions）见 `docs/ISSUE-lsp-symbols-and-actions.md`（**未提交，待用户确认**）。
+
+另：0.23.3 插件 JS API 扩展对本插件**无可落地增量**——manifest-only 无 JS；Java 高亮 Chroma 内置 java lexer 已覆盖（无需 lexerFile）；source actions/output panes 需要插件 JS 代码且 source actions 还依赖宿主先请求 codeAction（见上游建议草稿）。索引 PR mayoi-editor/plugins#1 仍 OPEN（尚无评审）。

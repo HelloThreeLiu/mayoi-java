@@ -17,9 +17,14 @@
   使用**完全相同的 API**，没有特权接口。
 - 官方索引（`mayoi-editor/plugins` 仓库的 `index.json`）明确接受第三方语言服务器插件，
   并为其设计了自动探测与引导安装的体验链路（见第 6 章）。
-- 只有当需要**修改 Mayoi 核心能力**时才需要向官方提 PR / fork。已知与 Java 插件相关的核心限制：
-  LSP 客户端目前只做 diagnostics、hover、definition、completion、formatting，
-  **不支持 references 与 rename**（见 `docs/PLUGINS-DESIGN.md`）。
+- 只有当需要**修改 Mayoi 核心能力**时才需要向官方提 PR / fork。已知与 Java 插件相关的核心能力面
+  （2026-11-24 依 **0.23.3 源码**修订，原文档 `docs/PLUGINS-DESIGN.md` 的声明已过时，以
+  `internal/lsp/client.go` 能力初始化与 `cmd/mayoi/commands.go` 命令注册为准）：
+  LSP 客户端做 diagnostics、hover、definition、completion、formatting，以及
+  **typeDefinition / implementation / references**（0.23.1 起，上游 #211：
+  `go.typeDefinition` 无默认键、`go.implementation` ⌘/Ctrl+F12、`go.references` Shift+F12）；
+  **rename 与 document highlight 仍未实现**；codeAction/codeLens、documentSymbol 也未请求
+  （面包屑符号列表与 Go to Symbol 为 `internal/symbols` 文本正则实现，非 LSP）。
 
 ---
 
@@ -171,8 +176,14 @@ resolver 协议（官方规则，逐条）：
 ### 3.3 宿主提供的 LSP 能力范围
 
 由宿主统一提供：诊断（Problems + 状态栏计数 + 光标行消息）、hover、go to definition
-（F12 / ⌘-click）、补全（⌃Space）、formatting（仅当没有插件为该语言注册 formatter 时）。
-**不提供**：references、rename、document highlight 等其余 LSP 能力。
+（F12 / ⌘-click）、**go to references（Shift+F12）/ go to implementation（⌘/Ctrl+F12）/
+go to type definition（无默认键）**（以上三项 0.23.1 起，#211）、补全（⌃Space）、
+formatting（仅当没有插件为该语言注册 formatter 时）。
+**不提供**：rename、document highlight、codeAction/codeLens、documentSymbol 等其余 LSP 能力
+（面包屑符号列表与 Go to Symbol 为 `internal/symbols` 文本正则实现，非 LSP——Java 类/接口/枚举
+可见、方法不可见）。
+> 修订记录：2026-11-24 依 0.23.3 源码修订本节——0.23.1（#211）已加入 references/implementation/
+> typeDefinition；此前本节引用的 `docs/PLUGINS-DESIGN.md`「references 未做」为过时声明。
 
 ### 3.4 用户覆盖配置
 
@@ -253,7 +264,10 @@ resolver 必须快速且离线（30 秒时限与 initialize 共享）；下载/�
 ### 4.4 已知能力边界（如实告知用户）
 
 - ✅ 诊断、hover、定义跳转、补全、格式化（宿主 LSP 客户端提供）
-- ❌ 查找引用、重命名（宿主客户端暂未实现，需核心支持，见第 1 章）
+- ✅ 查找引用 / 转到实现 / 转到类型定义（Mayoi ≥ 0.23.1 起宿主提供，#211）
+- ❌ 重命名、document highlight（宿主客户端暂未实现，需核心支持，见第 1 章）
+- ❌ code lens（run/debug）、LSP documentSymbol（宿主未请求相应能力；符号列表为文本正则，
+  Java 方法不可见——已拟上游建议，见 `docs/ISSUE-lsp-symbols-and-actions.md`）
 - Gradle/Maven 复杂项目的 import 行为取决于 jdtls 自身与 initializationOptions，
   属"待验证"范围，v1 不做承诺。
 
